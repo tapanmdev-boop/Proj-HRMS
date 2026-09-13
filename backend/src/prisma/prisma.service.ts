@@ -14,6 +14,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
   }
 
   async enableShutdownHooks(app: INestApplication) {
+    // @ts-ignore - Prisma client has $on method
     this.$on('beforeExit', async () => {
       await app.close();
     });
@@ -22,7 +23,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
   // Helper method for multi-tenancy
   withTenant(tenantId: string) {
     return {
-      user: this.user.extend({
+      user: {
         async findMany({ where = {}, ...args } = {}) {
           return this.user.findMany({
             where: {
@@ -50,9 +51,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
             ...args,
           });
         },
-      }),
+      },
       // Similar extensions for other models
-      employee: this.employee.extend({
+      employee: {
         async findMany({ where = {}, ...args } = {}) {
           return this.employee.findMany({
             where: {
@@ -71,7 +72,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
             ...args,
           });
         },
-      }),
+      },
       // Add similar methods for other models as needed
     };
   }

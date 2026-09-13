@@ -7,6 +7,9 @@ const HrmsRoutes = lazy(() => import('./hrms/routes'));
 const PerformanceRoutes = lazy(() => import('./performance/routes'));
 const Auth = lazy(() => import('./auth'));
 
+// Import API test component
+import { ApiTest } from './components/ui/ApiTest';
+
 // Central route configuration
 export const routes: RouteObject[] = [
   { 
@@ -28,5 +31,9 @@ export const routes: RouteObject[] = [
   { 
     path: '/auth/*',
     element: <Suspense fallback={<div>Loading...</div>}><Auth /></Suspense>
+  },
+  {
+    path: '/api-test',
+    element: <ApiTest />
   }
 ];

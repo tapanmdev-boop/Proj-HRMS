@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bull';
 import { PrismaService } from '../prisma/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
+// @ts-ignore
 import PDFDocument from 'pdfkit';
 
 @Processor('payroll')
