@@ -4,16 +4,30 @@ import { usePerformanceReviews } from './api';
 export default function Reviews() {
   const [selectedReview, setSelectedReview] = useState<number | null>(null);
   const [filter, setFilter] = useState('all');
-  const { reviews, loading, error } = usePerformanceReviews();
-  
+  const { reviews, setReviews, loading, error } = usePerformanceReviews();
+
   if (loading) {
     return <div className="text-center py-10">Loading reviews...</div>;
   }
-  
+
   if (error) {
     return <div className="text-center py-10 text-red-600">Error loading reviews: {error.message}</div>;
   }
-  
+
+  // Advance a review one stage per click: Not Started -> In Progress (25%),
+  // then +25% per click, becoming Completed at 100%.
+  const handleAdvanceReview = (id: number) => {
+    setReviews(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const nextPct = Math.min(100, r.completionPercentage + 25);
+      return {
+        ...r,
+        completionPercentage: nextPct,
+        status: nextPct >= 100 ? 'Completed' : 'In Progress',
+      };
+    }));
+  };
+
   const filteredReviews = filter === 'all' 
     ? reviews 
     : reviews.filter(review => review.status.toLowerCase() === filter.toLowerCase());
@@ -108,7 +122,10 @@ export default function Reviews() {
                     </button>
                     
                     {review.status !== 'Completed' && (
-                      <button className="text-green-600 hover:text-green-900 font-medium">
+                      <button
+                        onClick={() => handleAdvanceReview(review.id)}
+                        className="text-green-600 hover:text-green-900 font-medium"
+                      >
                         {review.status === 'Not Started' ? 'Start' : 'Continue'}
                       </button>
                     )}
@@ -203,7 +220,10 @@ export default function Reviews() {
               
               {review.status !== 'Completed' && (
                 <div className="mt-6 flex justify-end">
-                  <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">
+                  <button
+                    onClick={() => handleAdvanceReview(review.id)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md"
+                  >
                     {review.status === 'Not Started' ? 'Begin Review Process' : 'Continue Review'}
                   </button>
                 </div>

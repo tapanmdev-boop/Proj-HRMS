@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { mockData } from '../mocks/mockData';
 
 // Types for performance module
 export interface PerformanceReview {
@@ -48,130 +49,34 @@ export interface FeedbackRequest {
   status: string;
 }
 
-// Hook for fetching performance reviews
+// These hooks used to call fetch('/api/...'). That only ever worked in `npm
+// run dev`, where MSW (src/mocks/browser.ts) intercepts those exact paths —
+// in the production build MSW never starts (see src/main.tsx), so the fetch
+// hit the real network, 404'd, and these pages permanently showed an error/
+// empty state. There's no real backend yet for this module (deferred per the
+// GreytHR-replacement plan), so read the same mock dataset MSW was using
+// directly, as genuinely mutable local state instead of network calls.
+
+// Hook for performance reviews
 export function usePerformanceReviews() {
-  const [reviews, setReviews] = useState<PerformanceReview[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchReviews = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/performance-reviews');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch performance reviews');
-        }
-        
-        const data = await response.json();
-        setReviews(data);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('An unknown error occurred'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchReviews();
-  }, []);
-
-  return { reviews, loading, error };
+  const [reviews, setReviews] = useState<PerformanceReview[]>(mockData.performance_reviews);
+  return { reviews, setReviews, loading: false, error: null as Error | null };
 }
 
-// Hook for fetching goals
+// Hook for goals
 export function useGoals() {
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchGoals = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/goals');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch goals');
-        }
-        
-        const data = await response.json();
-        setGoals(data);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('An unknown error occurred'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchGoals();
-  }, []);
-
-  return { goals, loading, error };
+  const [goals, setGoals] = useState<Goal[]>(mockData.goals);
+  return { goals, setGoals, loading: false, error: null as Error | null };
 }
 
-// Hook for fetching feedback
+// Hook for feedback
 export function useFeedback() {
-  const [feedback, setFeedback] = useState<Feedback[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchFeedback = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/feedback');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch feedback');
-        }
-        
-        const data = await response.json();
-        setFeedback(data);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('An unknown error occurred'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchFeedback();
-  }, []);
-
-  return { feedback, loading, error };
+  const [feedback, setFeedback] = useState<Feedback[]>(mockData.feedback);
+  return { feedback, setFeedback, loading: false, error: null as Error | null };
 }
 
-// Hook for fetching feedback requests
+// Hook for feedback requests
 export function useFeedbackRequests() {
-  const [feedbackRequests, setFeedbackRequests] = useState<FeedbackRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchFeedbackRequests = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/feedback-requests');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch feedback requests');
-        }
-        
-        const data = await response.json();
-        setFeedbackRequests(data);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('An unknown error occurred'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchFeedbackRequests();
-  }, []);
-
-  return { feedbackRequests, loading, error };
+  const [feedbackRequests, setFeedbackRequests] = useState<FeedbackRequest[]>(mockData.feedback_requests);
+  return { feedbackRequests, setFeedbackRequests, loading: false, error: null as Error | null };
 }

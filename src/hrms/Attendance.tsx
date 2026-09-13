@@ -1,9 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useAppSelector } from '../store/hooks';
 import { selectCurrentUser } from '../auth/authSlice';
+import { Button } from '../components/ui/Form';
+
+interface AttendanceRecord {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  timeIn: string | null;
+  timeOut: string | null;
+  status: string;
+  workHours: string;
+}
 
 // Mock attendance data
-const MOCK_ATTENDANCE = [
+const MOCK_ATTENDANCE: AttendanceRecord[] = [
   {
     id: '1',
     employeeId: '3',
@@ -130,69 +142,91 @@ const MOCK_TEAM_ATTENDANCE = [
   }
 ];
 
+// Compute "H:MM" worked between two "HH:MM:SS" strings.
+function computeWorkHours(timeIn: string, timeOut: string): string {
+  const [inH, inM] = timeIn.split(':').map(Number);
+  const [outH, outM] = timeOut.split(':').map(Number);
+  const minutes = Math.max(0, (outH * 60 + outM) - (inH * 60 + inM));
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
 export default function Attendance() {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'my-attendance', 'team'
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [myAttendance, setMyAttendance] = useState<typeof MOCK_ATTENDANCE>([]);
-  const [teamAttendance, setTeamAttendance] = useState<typeof MOCK_TEAM_ATTENDANCE>([]);
-  const [checkInTime, setCheckInTime] = useState<string | null>(null);
-  
+  // The real, mutable dataset — Check In/Check Out write here instead of only
+  // firing a window.alert(), so a check-in now actually shows up in the
+  // "Recent Attendance"/"Attendance History" tables below.
+  const [attendanceRecords, setAttendanceRecords] = useState(MOCK_ATTENDANCE);
+
   const currentUser = useAppSelector(selectCurrentUser);
   const isHRorManager = currentUser?.role === 'hr' || currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  const today = new Date().toISOString().split('T')[0];
 
-  // Filter attendance data based on date and current user
-  useEffect(() => {
-    // For my attendance, filter by user ID and sort by date (descending)
-    const filteredMyAttendance = MOCK_ATTENDANCE
+  const myAttendance = useMemo(
+    () => attendanceRecords
       .filter(record => record.employeeId === currentUser?.id)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    setMyAttendance(filteredMyAttendance);
-    
-    // For today's check-in status
-    const today = new Date().toISOString().split('T')[0];
-    const todayRecord = MOCK_ATTENDANCE.find(
-      record => record.employeeId === currentUser?.id && record.date === today
-    );
-    
-    if (todayRecord && todayRecord.timeIn) {
-      setCheckInTime(todayRecord.timeIn);
-    }
-    
-    // For team attendance (if manager/HR), filter by selected date
-    if (isHRorManager) {
-      const filteredTeamAttendance = MOCK_TEAM_ATTENDANCE.filter(
-        record => record.date === attendanceDate
-      );
-      setTeamAttendance(filteredTeamAttendance);
-    }
-  }, [currentUser, attendanceDate]);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [attendanceRecords, currentUser]
+  );
+
+  const todayRecord = useMemo(
+    () => attendanceRecords.find(record => record.employeeId === currentUser?.id && record.date === today),
+    [attendanceRecords, currentUser, today]
+  );
+  const checkInTime = todayRecord?.timeIn ?? null;
+  const checkOutTime = todayRecord?.timeOut ?? null;
+
+  const teamAttendance = useMemo(
+    () => isHRorManager ? MOCK_TEAM_ATTENDANCE.filter(record => record.date === attendanceDate) : [],
+    [isHRorManager, attendanceDate]
+  );
 
   const handleCheckIn = () => {
+    if (!currentUser) return;
     const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit', 
-      hour12: false 
+    const timeString = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
     });
-    setCheckInTime(timeString);
-    
-    // Here you would make an API call to record the check-in
-    alert(`Checked in at ${timeString}`);
+
+    setAttendanceRecords(prev => {
+      const existing = prev.find(r => r.employeeId === currentUser.id && r.date === today);
+      if (existing) {
+        return prev.map(r => r === existing ? { ...r, timeIn: timeString, status: 'present' } : r);
+      }
+      return [
+        {
+          id: `attendance-${Date.now()}`,
+          employeeId: currentUser.id,
+          employeeName: currentUser.name,
+          date: today,
+          timeIn: timeString,
+          timeOut: null,
+          status: 'present',
+          workHours: '0:00',
+        },
+        ...prev,
+      ];
+    });
   };
 
   const handleCheckOut = () => {
+    if (!currentUser || !checkInTime) return;
     const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit', 
-      hour12: false 
+    const timeString = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
     });
-    
-    // Here you would make an API call to record the check-out
-    alert(`Checked out at ${timeString}`);
+
+    setAttendanceRecords(prev => prev.map(r =>
+      r.employeeId === currentUser.id && r.date === today
+        ? { ...r, timeOut: timeString, workHours: computeWorkHours(checkInTime, timeString) }
+        : r
+    ));
   };
 
   const getAttendanceStats = () => {
@@ -217,37 +251,16 @@ export default function Attendance() {
         <div className="flex flex-col md:flex-row justify-between mb-6">
           <h2 className="text-xl font-medium text-gray-800 mb-4 md:mb-0">Attendance Management</h2>
           <div className="flex space-x-2">
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'overview' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('overview')}
-            >
+            <Button variant={activeTab === 'overview' ? 'primary' : 'outline'} onClick={() => setActiveTab('overview')}>
               Overview
-            </button>
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'my-attendance' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('my-attendance')}
-            >
+            </Button>
+            <Button variant={activeTab === 'my-attendance' ? 'primary' : 'outline'} onClick={() => setActiveTab('my-attendance')}>
               My Attendance
-            </button>
+            </Button>
             {isHRorManager && (
-              <button 
-                className={`px-4 py-2 text-sm font-medium rounded-md ${
-                  activeTab === 'team' 
-                    ? 'bg-indigo-600 text-white' 
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-                onClick={() => setActiveTab('team')}
-              >
+              <Button variant={activeTab === 'team' ? 'primary' : 'outline'} onClick={() => setActiveTab('team')}>
                 Team Attendance
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -266,6 +279,9 @@ export default function Attendance() {
                   {checkInTime ? (
                     <p className="text-green-700">
                       You checked in at <span className="font-semibold">{checkInTime}</span>
+                      {checkOutTime && (
+                        <> · checked out at <span className="font-semibold">{checkOutTime}</span></>
+                      )}
                     </p>
                   ) : (
                     <p className="text-gray-500">You haven't checked in today</p>
@@ -273,29 +289,12 @@ export default function Attendance() {
                 </div>
                 
                 <div className="flex space-x-3 mt-4 md:mt-0">
-                  <button
-                    onClick={handleCheckIn}
-                    disabled={!!checkInTime}
-                    className={`px-4 py-2 text-sm font-medium rounded-md ${
-                      checkInTime 
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                        : 'bg-green-600 text-white hover:bg-green-700'
-                    }`}
-                  >
+                  <Button variant="success" onClick={handleCheckIn} disabled={!!checkInTime}>
                     Check In
-                  </button>
-                  
-                  <button
-                    onClick={handleCheckOut}
-                    disabled={!checkInTime}
-                    className={`px-4 py-2 text-sm font-medium rounded-md ${
-                      !checkInTime 
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                        : 'bg-red-600 text-white hover:bg-red-700'
-                    }`}
-                  >
+                  </Button>
+                  <Button variant="danger" onClick={handleCheckOut} disabled={!checkInTime || !!checkOutTime}>
                     Check Out
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -376,9 +375,48 @@ export default function Attendance() {
         
         {activeTab === 'my-attendance' && (
           <div className="space-y-6">
-            {/* Calendar view would go here */}
-            <p className="text-gray-500 italic">A calendar view would be implemented here showing attendance for each day.</p>
-            
+            {/* Simple month calendar — days with a recorded check-in are
+                highlighted, colored by status. */}
+            <div>
+              <h3 className="text-lg font-medium text-gray-800 mb-4">
+                {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </h3>
+              <div className="grid grid-cols-7 gap-2 text-center text-xs text-gray-500 mb-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d}>{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 gap-2">
+                {(() => {
+                  const now = new Date();
+                  const year = now.getFullYear();
+                  const month = now.getMonth();
+                  const firstWeekday = new Date(year, month, 1).getDay();
+                  const daysInMonth = new Date(year, month + 1, 0).getDate();
+                  const cells = [
+                    ...Array.from({ length: firstWeekday }, () => null),
+                    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+                  ];
+                  return cells.map((day, i) => {
+                    if (day === null) return <div key={`empty-${i}`} />;
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const record = myAttendance.find(r => r.date === dateStr);
+                    const isToday = dateStr === today;
+                    let cellClass = 'bg-gray-50 text-gray-400';
+                    if (record?.status === 'present') cellClass = 'bg-green-100 text-green-800 font-medium';
+                    else if (record?.status === 'absent') cellClass = 'bg-red-100 text-red-800 font-medium';
+                    return (
+                      <div
+                        key={dateStr}
+                        className={`h-10 flex items-center justify-center rounded-md text-sm ${cellClass} ${isToday ? 'ring-2 ring-brand-500' : ''}`}
+                        title={record ? `${record.status} — in ${record.timeIn ?? '-'} / out ${record.timeOut ?? '-'}` : 'No record'}
+                      >
+                        {day}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
             {/* Full attendance history */}
             <div>
               <h3 className="text-lg font-medium text-gray-800 mb-4">Attendance History</h3>

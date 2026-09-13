@@ -1,7 +1,7 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   return (
     <div className="space-y-8 max-w-7xl mx-auto fade-in">
       <div className="flex justify-between items-center">
@@ -311,7 +311,7 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-700 mb-2">Great job on the client presentation yesterday. Your preparation really showed!</p>
                 <div className="flex justify-between items-center">
                   <p className="text-xs text-gray-500">June 9, 2025</p>
-                  <button className="text-xs text-blue-600 hover:text-blue-800 font-medium">Reply</button>
+                  <button onClick={() => navigate('/performance/feedback')} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Reply</button>
                 </div>
               </div>
             </div>
@@ -332,7 +332,7 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-700 mb-2">I appreciate your initiative in resolving the database issue last week.</p>
                 <div className="flex justify-between items-center">
                   <p className="text-xs text-gray-500">June 5, 2025</p>
-                  <button className="text-xs text-blue-600 hover:text-blue-800 font-medium">Reply</button>
+                  <button onClick={() => navigate('/performance/feedback')} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Reply</button>
                 </div>
               </div>
             </div>

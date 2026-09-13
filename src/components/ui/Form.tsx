@@ -203,39 +203,69 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   );
 };
 
+import { semanticColors, type SemanticColor } from './colorTokens';
+
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'danger'
+  | 'success'
+  | 'warning'
+  | 'outline'
+  | 'ghost-primary'
+  | 'ghost-secondary'
+  | 'ghost-success'
+  | 'ghost-danger'
+  | 'ghost-warning'
+  | 'ghost-info';
+
+const solidVariant = (color: SemanticColor) => {
+  const t = semanticColors[color];
+  return `${t.solid} ${t.solidHover} ${t.ring} shadow-premium-sm hover:shadow-premium-md hover:-translate-y-px active:translate-y-0 active:shadow-premium-sm disabled:hover:translate-y-0 disabled:hover:shadow-premium-sm`;
+};
+
+const ghostVariant = (color: SemanticColor) =>
+  `bg-transparent ${semanticColors[color].ghostText} ${semanticColors[color].ghostHover} ${semanticColors[color].ring}`;
+
+const variantClasses: Record<ButtonVariant, string> = {
+  primary: solidVariant('primary'),
+  secondary: solidVariant('secondary'),
+  danger: solidVariant('danger'),
+  success: solidVariant('success'),
+  warning: solidVariant('warning'),
+  outline: `bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:-translate-y-px active:translate-y-0 shadow-premium-sm hover:shadow-premium-md ${semanticColors.primary.ring}`,
+  'ghost-primary': ghostVariant('primary'),
+  'ghost-secondary': ghostVariant('secondary'),
+  'ghost-success': ghostVariant('success'),
+  'ghost-danger': ghostVariant('danger'),
+  'ghost-warning': ghostVariant('warning'),
+  'ghost-info': ghostVariant('info'),
+};
+
 export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
+  variant?: ButtonVariant;
+  size?: 'sm' | 'md' | 'lg' | 'icon';
   isLoading?: boolean;
-}> = ({ 
-  children, 
-  variant = 'primary', 
-  size = 'md', 
+}> = ({
+  children,
+  variant = 'primary',
+  size = 'md',
   isLoading = false,
   className = '',
   ...props
 }) => {
-  const baseClasses = 'inline-flex justify-center items-center font-medium rounded-md focus:outline-none transition-colors';
-  
-  const variantClasses = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500',
-    secondary: 'bg-gray-600 text-white hover:bg-gray-700 focus:ring-2 focus:ring-offset-2 focus:ring-gray-500',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-offset-2 focus:ring-red-500',
-    success: 'bg-green-600 text-white hover:bg-green-700 focus:ring-2 focus:ring-offset-2 focus:ring-green-500',
-    outline: 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
-  };
-  
+  const baseClasses = 'inline-flex justify-center items-center gap-1.5 font-medium rounded-btn transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none';
+
   const sizeClasses = {
     sm: 'py-1 px-3 text-xs',
     md: 'py-2 px-4 text-sm',
-    lg: 'py-2 px-6 text-base'
+    lg: 'py-2 px-6 text-base',
+    icon: 'p-2 leading-none',
   };
-  
-  const disabledClasses = props.disabled ? 'opacity-50 cursor-not-allowed' : '';
-  
+
   return (
     <button
-      className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${disabledClasses} ${className}`}
+      className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
       disabled={props.disabled || isLoading}
       {...props}
     >

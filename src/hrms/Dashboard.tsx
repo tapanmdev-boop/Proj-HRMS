@@ -1,15 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Button } from '../components/ui/Form';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
-  // Simulate loading data
-  useEffect(() => {
-    const timer = setTimeout(() => {
-    }, 800);
-    return () => clearTimeout(timer);
-  }, []);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto fade-in">
@@ -28,12 +21,12 @@ export default function Dashboard() {
       <div className="bg-white shadow-lg rounded-xl p-6 border border-gray-100">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-semibold text-gray-800">Organization Overview</h3>
-          <button className="text-sm text-white flex items-center">
+          <Button variant="ghost-primary" size="sm" onClick={() => navigate('/hrms/reports')}>
             <span>View Reports</span>
             <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
             </svg>
-          </button>
+          </Button>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">          <button 
@@ -144,15 +137,12 @@ export default function Dashboard() {
               </svg>
               <h3 className="text-lg font-semibold text-gray-800">Leave Requests</h3>
             </div>
-            <button 
-              onClick={() => navigate('/hrms/leaves')}
-              className="text-sm text-white flex items-center font-medium"
-            >
+            <Button variant="ghost-primary" size="sm" onClick={() => navigate('/hrms/leaves')}>
               <span>View all</span>
               <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
               </svg>
-            </button>
+            </Button>
           </div>
           
           <div className="divide-y divide-gray-100 transform transition-all">
@@ -175,13 +165,13 @@ export default function Dashboard() {
                     <span>June 15 - June 19, 2025 <span className="font-medium text-indigo-600 ml-1">• 5 days</span></span>
                   </div>
                   <div className="flex mt-3 space-x-2">
-                    <button className="px-4 py-1 bg-emerald-100 text-emerald-700 text-sm rounded-md hover:bg-emerald-200 transition-colors flex items-center">
+                    <button onClick={() => navigate('/hrms/leaves')} className="px-4 py-1 bg-emerald-100 text-emerald-700 text-sm rounded-md hover:bg-emerald-200 transition-colors flex items-center">
                       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                       Approve
                     </button>
-                    <button className="px-4 py-1 bg-red-100 text-red-700 text-sm rounded-md hover:bg-red-200 transition-colors flex items-center">
+                    <button onClick={() => navigate('/hrms/leaves')} className="px-4 py-1 bg-red-100 text-red-700 text-sm rounded-md hover:bg-red-200 transition-colors flex items-center">
                       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
@@ -211,13 +201,13 @@ export default function Dashboard() {
                     <span>June 12 - June 13, 2025 <span className="font-medium text-indigo-600 ml-1">• 2 days</span></span>
                   </div>
                   <div className="flex mt-3 space-x-2">
-                    <button className="px-4 py-1 bg-emerald-100 text-emerald-700 text-sm rounded-md hover:bg-emerald-200 transition-colors flex items-center">
+                    <button onClick={() => navigate('/hrms/leaves')} className="px-4 py-1 bg-emerald-100 text-emerald-700 text-sm rounded-md hover:bg-emerald-200 transition-colors flex items-center">
                       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                       Approve
                     </button>
-                    <button className="px-4 py-1 bg-red-100 text-red-700 text-sm rounded-md hover:bg-red-200 transition-colors flex items-center">
+                    <button onClick={() => navigate('/hrms/leaves')} className="px-4 py-1 bg-red-100 text-red-700 text-sm rounded-md hover:bg-red-200 transition-colors flex items-center">
                       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
@@ -229,15 +219,16 @@ export default function Dashboard() {
             </div>
 
             <div className="py-3 px-5 bg-gray-50">
-              <button 
-                onClick={() => navigate('/hrms/leaves/new')}
-                className="w-full flex items-center justify-center text-sm text-white py-1"
+              <Button
+                variant="ghost-primary"
+                className="w-full justify-center"
+                onClick={() => navigate('/hrms/leaves?action=new')}
               >
                 <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
                 </svg>
                 Add Leave Request
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -250,15 +241,12 @@ export default function Dashboard() {
               </svg>
               <h3 className="text-lg font-semibold text-gray-800">Recent Payroll</h3>
             </div>
-            <button 
-              onClick={() => navigate('/hrms/payroll')}
-              className="text-sm text-white flex items-center font-medium"
-            >
+            <Button variant="ghost-primary" size="sm" onClick={() => navigate('/hrms/payroll')}>
               <span>View all</span>
               <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
               </svg>
-            </button>
+            </Button>
           </div>
 
           <div className="overflow-hidden">
@@ -298,13 +286,13 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button className="text-white font-medium flex items-center">
+                      <Button variant="ghost-primary" size="sm" onClick={() => navigate('/hrms/payroll')}>
                         <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                         View Payslips
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                   <tr className="hover:bg-gray-50 transition-colors duration-150">
@@ -332,13 +320,13 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button className="text-white font-medium flex items-center">
+                      <Button variant="ghost-primary" size="sm" onClick={() => navigate('/hrms/payroll')}>
                         <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                         View Payslips
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 </tbody>
@@ -348,8 +336,8 @@ export default function Dashboard() {
             <div className="py-3 px-6 bg-gray-50 border-t border-gray-100">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-500">Next payroll in: <span className="font-medium text-gray-900">5 days</span></span>
-                <button 
-                  onClick={() => navigate('/hrms/payroll/run')}
+                <button
+                  onClick={() => navigate('/hrms/payroll?tab=run-payroll')}
                   className="text-sm font-medium px-3 py-1 rounded-md bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition-colors"
                 >
                   Run Payroll

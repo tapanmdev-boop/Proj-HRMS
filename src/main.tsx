@@ -2,7 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './assets/custom.css'
-import './assets/tailwind-styles.css'
 import App from './App.tsx'
 
 // Initialize MSW mock service worker in development

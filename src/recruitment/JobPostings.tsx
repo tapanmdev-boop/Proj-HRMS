@@ -82,6 +82,8 @@ export default function JobPostings() {
   const [jobs, setJobs] = useState(initialJobs);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState<JobFormData>(emptyJobForm);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [viewingJob, setViewingJob] = useState<typeof initialJobs[number] | null>(null);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -90,17 +92,36 @@ export default function JobPostings() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const newJob = {
-      id: String(Date.now()),
-      ...formData,
-      postedDate: new Date().toISOString().split('T')[0],
-      status: 'Open'
-    };
-    
-    setJobs(prev => [newJob, ...prev]);
+
+    if (editingJobId) {
+      setJobs(prev => prev.map(j => j.id === editingJobId ? { ...j, ...formData } : j));
+    } else {
+      const newJob = {
+        id: String(Date.now()),
+        ...formData,
+        postedDate: new Date().toISOString().split('T')[0],
+        status: 'Open'
+      };
+      setJobs(prev => [newJob, ...prev]);
+    }
     setFormData(emptyJobForm);
+    setEditingJobId(null);
     setIsFormOpen(false);
+  };
+
+  const handleEditClick = (jobId: string) => {
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+    setFormData({
+      title: job.title,
+      department: job.department,
+      location: job.location,
+      type: job.type,
+      description: (job as Partial<JobFormData>).description ?? '',
+      requirements: (job as Partial<JobFormData>).requirements ?? '',
+    });
+    setEditingJobId(jobId);
+    setIsFormOpen(true);
   };
   // Extract the renderJobStatus function to avoid React hook rules violations
   const renderJobStatus = (status: string) => {
@@ -123,12 +144,15 @@ export default function JobPostings() {
       day: 'numeric' 
     });
   };  // Add job action buttons renderer function
-  const renderJobActions = (_job: Record<string, any>) => (
+  const renderJobActions = (row: Record<string, any>) => (
     <div className="flex space-x-2">
-      <button className="text-blue-600 hover:text-blue-800 text-sm">
+      <button className="text-blue-600 hover:text-blue-800 text-sm" onClick={() => handleEditClick(row.id)}>
         Edit
       </button>
-      <button className="text-green-600 hover:text-green-800 text-sm">
+      <button
+        className="text-green-600 hover:text-green-800 text-sm"
+        onClick={() => setViewingJob(jobs.find(j => j.id === row.id) ?? null)}
+      >
         View
       </button>
     </div>
@@ -155,10 +179,10 @@ export default function JobPostings() {
       {isFormOpen ? (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-medium">Create New Job Posting</h2>
-            <Button 
-              variant="outline" 
-              onClick={() => setIsFormOpen(false)}
+            <h2 className="text-xl font-medium">{editingJobId ? 'Edit Job Posting' : 'Create New Job Posting'}</h2>
+            <Button
+              variant="outline"
+              onClick={() => { setIsFormOpen(false); setEditingJobId(null); setFormData(emptyJobForm); }}
               size="sm"
             >
               Cancel
@@ -235,25 +259,43 @@ export default function JobPostings() {
             </div>
             
             <div className="mt-6 flex justify-end space-x-3">
-              <Button 
-                variant="outline" 
-                onClick={() => setIsFormOpen(false)}
+              <Button
+                variant="outline"
+                onClick={() => { setIsFormOpen(false); setEditingJobId(null); setFormData(emptyJobForm); }}
                 type="button"
               >
                 Cancel
               </Button>
               <Button type="submit">
-                Create Job Posting
+                {editingJobId ? 'Save Changes' : 'Create Job Posting'}
               </Button>
             </div>
           </form>
         </div>
       ) : (      <div className="bg-white rounded-lg shadow overflow-hidden">
-          <DataTable 
-            columns={jobColumns} 
-            data={jobsWithFormattedData} 
+          <DataTable
+            columns={jobColumns}
+            data={jobsWithFormattedData}
             actions={renderJobActions}
           />
+        </div>
+      )}
+
+      {viewingJob && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">{viewingJob.title}</h3>
+            <div className="space-y-2 text-sm">
+              <p><span className="font-semibold">Department:</span> {viewingJob.department}</p>
+              <p><span className="font-semibold">Location:</span> {viewingJob.location}</p>
+              <p><span className="font-semibold">Type:</span> {viewingJob.type}</p>
+              <p><span className="font-semibold">Status:</span> {viewingJob.status}</p>
+              <p><span className="font-semibold">Posted:</span> {formatDate(viewingJob.postedDate)}</p>
+            </div>
+            <div className="flex justify-end mt-4">
+              <Button variant="outline" onClick={() => setViewingJob(null)}>Close</Button>
+            </div>
+          </div>
         </div>
       )}
     </>

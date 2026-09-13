@@ -129,7 +129,50 @@ export default function InterviewScheduler() {
   const [calendarDays, setCalendarDays] = useState<InterviewCalendarEntry[]>(
     generateCalendarDays(initialInterviews)
   );
-  
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState({ date: '', time: '' });
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [completionNotes, setCompletionNotes] = useState('');
+  const [viewingScheduleForId, setViewingScheduleForId] = useState<string | null>(null);
+
+  const updateInterview = (id: string, changes: Partial<Interview>) => {
+    setInterviews(prev => {
+      const updated = prev.map(i => i.id === id ? { ...i, ...changes } : i);
+      setCalendarDays(generateCalendarDays(updated));
+      return updated;
+    });
+    setSelectedInterview(prev => prev && prev.id === id ? { ...prev, ...changes } : prev);
+  };
+
+  const handleCancelInterview = () => {
+    if (!selectedInterview) return;
+    updateInterview(selectedInterview.id, { status: 'cancelled' });
+    setSelectedInterview(null);
+  };
+
+  const handleStartReschedule = () => {
+    if (!selectedInterview) return;
+    setRescheduleForm({ date: selectedInterview.date, time: selectedInterview.time });
+    setIsRescheduling(true);
+  };
+
+  const handleSaveReschedule = () => {
+    if (!selectedInterview || !rescheduleForm.date || !rescheduleForm.time) return;
+    updateInterview(selectedInterview.id, { date: rescheduleForm.date, time: rescheduleForm.time });
+    setIsRescheduling(false);
+  };
+
+  const handleStartCompletion = () => {
+    setCompletionNotes(selectedInterview?.notes ?? '');
+    setIsCompleting(true);
+  };
+
+  const handleSaveCompletion = () => {
+    if (!selectedInterview) return;
+    updateInterview(selectedInterview.id, { status: 'completed', notes: completionNotes || undefined });
+    setIsCompleting(false);
+  };
+
   // New interview form state
   const [newInterview, setNewInterview] = useState<Omit<Interview, 'id'>>({
     candidateName: '',
@@ -169,10 +212,14 @@ export default function InterviewScheduler() {
   
   const handleSelectInterview = (interview: Interview) => {
     setSelectedInterview(interview);
+    setIsRescheduling(false);
+    setIsCompleting(false);
   };
-  
+
   const handleCloseInterviewDetails = () => {
     setSelectedInterview(null);
+    setIsRescheduling(false);
+    setIsCompleting(false);
   };
   
   const getInterviewTimeDisplay = (interview: Interview) => {
@@ -338,7 +385,7 @@ export default function InterviewScheduler() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button className="text-indigo-600 hover:text-indigo-900 mr-4">View Schedule</button>
+                      <button className="text-indigo-600 hover:text-indigo-900 mr-4" onClick={() => setViewingScheduleForId(member.id)}>View Schedule</button>
                     </td>
                   </tr>
                 ))}
@@ -602,31 +649,96 @@ export default function InterviewScheduler() {
                   </div>
                 </div>
               )}
-              
-              <div className="flex justify-end space-x-3 pt-4">
-                {selectedInterview.status === 'scheduled' && (
-                  <>
-                    <Button variant="danger" size="sm">
-                      Cancel Interview
-                    </Button>
-                    <Button variant="secondary" size="sm">
-                      Reschedule
-                    </Button>
-                    <Button variant="primary" size="sm">
-                      Start Interview
-                    </Button>
-                  </>
-                )}
-                {selectedInterview.status === 'completed' && (
-                  <Button variant="secondary" size="sm">
-                    View Feedback
-                  </Button>
-                )}
-              </div>
+
+              {isRescheduling && (
+                <div className="bg-gray-50 p-4 rounded border border-gray-200 space-y-3">
+                  <p className="text-sm font-medium">New date & time</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      label="Date"
+                      type="date"
+                      value={rescheduleForm.date}
+                      onChange={e => setRescheduleForm({ ...rescheduleForm, date: e.target.value })}
+                    />
+                    <Input
+                      label="Time"
+                      type="time"
+                      value={rescheduleForm.time}
+                      onChange={e => setRescheduleForm({ ...rescheduleForm, time: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setIsRescheduling(false)}>Cancel</Button>
+                    <Button variant="primary" size="sm" onClick={handleSaveReschedule}>Save New Time</Button>
+                  </div>
+                </div>
+              )}
+
+              {isCompleting && (
+                <div className="bg-gray-50 p-4 rounded border border-gray-200 space-y-3">
+                  <Textarea
+                    label="Interview Notes / Feedback"
+                    rows={4}
+                    value={completionNotes}
+                    onChange={e => setCompletionNotes(e.target.value)}
+                    placeholder="How did the interview go?"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setIsCompleting(false)}>Cancel</Button>
+                    <Button variant="primary" size="sm" onClick={handleSaveCompletion}>Mark Completed</Button>
+                  </div>
+                </div>
+              )}
+
+              {!isRescheduling && !isCompleting && (
+                <div className="flex justify-end space-x-3 pt-4">
+                  {selectedInterview.status === 'scheduled' && (
+                    <>
+                      <Button variant="danger" size="sm" onClick={handleCancelInterview}>
+                        Cancel Interview
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={handleStartReschedule}>
+                        Reschedule
+                      </Button>
+                      <Button variant="primary" size="sm" onClick={handleStartCompletion}>
+                        Start Interview
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {viewingScheduleForId && (() => {
+        const member = teamMembers.find(m => m.id === viewingScheduleForId);
+        if (!member) return null;
+        const memberInterviews = interviews.filter(i => i.interviewers.includes(member.name));
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+              <h3 className="text-lg font-medium mb-4">{member.name}'s Schedule</h3>
+              {memberInterviews.length > 0 ? (
+                <ul className="space-y-2">
+                  {memberInterviews.map(i => (
+                    <li key={i.id} className="flex justify-between border-b pb-2 text-sm">
+                      <span>{i.candidateName} — {i.position}</span>
+                      <span className="text-gray-500">{formatDate(i.date)} at {getInterviewTimeDisplay(i)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No interviews scheduled for {member.name}.</p>
+              )}
+              <div className="flex justify-end mt-4">
+                <Button variant="outline" onClick={() => setViewingScheduleForId(null)}>Close</Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

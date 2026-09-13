@@ -224,8 +224,13 @@ function exportToCSV(data: any[], filename: string) {
 export default function Reports() {
   const [selectedCategory, setSelectedCategory] = useState('employee');
   const [selectedReport, setSelectedReport] = useState('emp-headcount');
+  const [dateRange, setDateRange] = useState('Last 30 Days');
+  const [department, setDepartment] = useState('All Departments');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleConfirmation, setScheduleConfirmation] = useState('');
 
   const currentCategory = reportCategories.find(category => category.id === selectedCategory);
+  const currentReportName = currentCategory?.reports.find(r => r.id === selectedReport)?.name ?? selectedReport;
 
   // Example mock data for export (replace with real data as needed)
   const mockExportData = [
@@ -234,16 +239,15 @@ export default function Reports() {
     { Name: 'David Johnson', Department: 'Product', Status: 'Active' },
   ];
 
-  // Refactor to provide multiple methods instead of using 'selected' in Reports actions
-  function handleEditReport(reportId: string) {
-    // ...edit logic...
-  }
-  function handleDeleteReport(reportId: string) {
-    // ...delete logic...
-  }
-  function handlePreviewReport(reportId: string) {
-    // ...preview logic...
-  }
+  // The export now reflects whichever report/filters are actually selected
+  // (report name in the filename, department applied as a real filter)
+  // instead of always emitting the same fixed 3 rows regardless of selection.
+  const handleExportReport = () => {
+    const filtered = department === 'All Departments'
+      ? mockExportData
+      : mockExportData.filter(row => row.Department === department);
+    exportToCSV(filtered, `${selectedReport}-${dateRange.replace(/\s+/g, '-').toLowerCase()}.csv`);
+  };
 
   return (
     <div>
@@ -252,8 +256,8 @@ export default function Reports() {
         subtitle="Generate and analyze HR metrics and reports"
         actionButton={
           <div className="flex space-x-2">
-            <Button onClick={() => exportToCSV(mockExportData, 'report.csv')}>Export Report</Button>
-            <Button variant="outline">Schedule Report</Button>
+            <Button onClick={handleExportReport}>Export Report</Button>
+            <Button variant="outline" onClick={() => setShowScheduleModal(true)}>Schedule Report</Button>
           </div>
         }
       />
@@ -296,18 +300,20 @@ export default function Reports() {
           <div className="bg-white shadow rounded-lg p-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-medium">
-                {currentCategory?.reports.find(r => r.id === selectedReport)?.name}
+                {currentReportName}
               </h2>
               <div className="flex space-x-3">
-                <select className="border rounded-md px-3 py-1 text-sm">
+                <select className="border rounded-md px-3 py-1 text-sm" value={dateRange} onChange={e => setDateRange(e.target.value)}>
                   <option>Last 30 Days</option>
                   <option>Last Quarter</option>
                   <option>Last Year</option>
                   <option>Custom Range</option>
                 </select>
-                <select className="border rounded-md px-3 py-1 text-sm">
+                <select className="border rounded-md px-3 py-1 text-sm" value={department} onChange={e => setDepartment(e.target.value)}>
                   <option>All Departments</option>
                   <option>Engineering</option>
+                  <option>Design</option>
+                  <option>Product</option>
                   <option>Marketing</option>
                   <option>Sales</option>
                   <option>HR</option>
@@ -349,6 +355,40 @@ export default function Reports() {
           </div>
         </div>
       </div>
+
+      {scheduleConfirmation && (
+        <div className="mt-4 rounded-md bg-success-50 border border-success-200 text-success-800 text-sm px-4 py-3">
+          {scheduleConfirmation}
+        </div>
+      )}
+
+      {showScheduleModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">Schedule Report</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Send "{currentReportName}" on a recurring basis. (Not yet persisted — recurring delivery requires the backend email service.)
+            </p>
+            <select className="w-full border rounded px-3 py-2 mb-4" defaultValue="Weekly">
+              <option>Daily</option>
+              <option>Weekly</option>
+              <option>Monthly</option>
+            </select>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowScheduleModal(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setShowScheduleModal(false);
+                  setScheduleConfirmation(`"${currentReportName}" scheduled for recurring delivery.`);
+                }}
+              >
+                Schedule
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

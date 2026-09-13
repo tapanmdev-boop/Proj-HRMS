@@ -78,20 +78,54 @@ const onboardingColumns = [
 ];
 
 // Move row actions to a separate component
-const OnboardingRowActions = ({ row, onPreview }: { row: any; onPreview: (row: any) => void }) => (
-	<button
-		className="text-blue-600 hover:text-blue-800 text-sm"
-		onClick={() => onPreview(row)}
-		aria-label={`Preview onboarding for ${row.name}`}
-	>
-		Preview
-	</button>
+const OnboardingRowActions = ({
+	row,
+	onPreview,
+	onViewDetails,
+}: {
+	row: any;
+	onPreview: (row: any) => void;
+	onViewDetails: (id: string) => void;
+}) => (
+	<div className="flex gap-1">
+		<Button
+			variant="ghost-primary"
+			size="sm"
+			onClick={() => onPreview(row)}
+			aria-label={`Preview onboarding for ${row.name}`}
+		>
+			Preview
+		</Button>
+		<Button
+			variant="ghost-primary"
+			size="sm"
+			onClick={() => onViewDetails(row.id)}
+			aria-label={`View onboarding checklist for ${row.name}`}
+		>
+			View Details
+		</Button>
+	</div>
 );
 
 export default function Onboarding() {
-	const [onboardingData] = useState(initialOnboardingData);
+	// Was `const [onboardingData] = useState(...)` — the setter was never
+	// destructured, so this data was runtime-immutable and "Create Onboarding
+	// Plan" had nothing to write to.
+	const [onboardingData, setOnboardingData] = useState(initialOnboardingData);
 	const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
 	const [previewEmployee, setPreviewEmployee] = useState<any | null>(null);
+	const [showCreateModal, setShowCreateModal] = useState(false);
+	const [newPlan, setNewPlan] = useState({ name: '', position: '', department: '', joinDate: '' });
+
+	const handleCreatePlan = () => {
+		if (!newPlan.name || !newPlan.position || !newPlan.department || !newPlan.joinDate) return;
+		setOnboardingData(prev => [
+			{ ...newPlan, id: Date.now().toString(), status: 'Pending', progress: 0 },
+			...prev,
+		]);
+		setShowCreateModal(false);
+		setNewPlan({ name: '', position: '', department: '', joinDate: '' });
+	};
 
 	// Format date values
 	const formatDate = (dateString: string) => {
@@ -143,10 +177,6 @@ export default function Onboarding() {
 		progress: renderProgress(employee.progress),
 	}));
 
-	const handleRowClick = (employee: Record<string, any>) => {
-		setSelectedEmployee(employee.id);
-	};
-
 	// Get tasks for selected employee
 	const getEmployeeTasks = () => {
 		if (!selectedEmployee) return [];
@@ -183,7 +213,7 @@ export default function Onboarding() {
 			<PageHeader
 				title="Employee Onboarding"
 				subtitle="Manage the onboarding process for new employees"
-				actionButton={<Button>Create Onboarding Plan</Button>}
+				actionButton={<Button onClick={() => setShowCreateModal(true)}>Create Onboarding Plan</Button>}
 			/>
 
 			<div className="mt-6 bg-white shadow overflow-hidden rounded-lg">
@@ -191,7 +221,7 @@ export default function Onboarding() {
 					columns={onboardingColumns}
 					data={formattedOnboardingData}
 					actions={(row) => (
-						<OnboardingRowActions row={row} onPreview={setPreviewEmployee} />
+						<OnboardingRowActions row={row} onPreview={setPreviewEmployee} onViewDetails={setSelectedEmployee} />
 					)}
 				/>
 			</div>
@@ -202,11 +232,49 @@ export default function Onboarding() {
 						<h2 className="text-xl font-bold mb-4">Onboarding Preview</h2>
 						<div className="mb-4">
 							<p><span className="font-semibold">Name:</span> {previewEmployee?.name}</p>
-							<p><span className="font-semibold">Start Date:</span> {previewEmployee?.startDate}</p>
-							<p><span className="font-semibold">Role:</span> {previewEmployee?.role}</p>
+							<p><span className="font-semibold">Start Date:</span> {formatDate(previewEmployee?.joinDate ?? '')}</p>
+							<p><span className="font-semibold">Position:</span> {previewEmployee?.position}</p>
 							{/* Add more fields as needed */}
 						</div>
-						<button onClick={() => setPreviewEmployee(null)} className="bg-blue-500 text-white px-4 py-2 rounded">Close</button>
+						<Button variant="outline" onClick={() => setPreviewEmployee(null)}>Close</Button>
+					</div>
+				</div>
+			)}
+
+			{showCreateModal && (
+				<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+					<div className="bg-white rounded-lg p-6 w-full max-w-md">
+						<h2 className="text-xl font-bold mb-4">Create Onboarding Plan</h2>
+						<div className="space-y-3">
+							<input
+								className="w-full border rounded px-3 py-2"
+								placeholder="Full Name"
+								value={newPlan.name}
+								onChange={e => setNewPlan({ ...newPlan, name: e.target.value })}
+							/>
+							<input
+								className="w-full border rounded px-3 py-2"
+								placeholder="Position"
+								value={newPlan.position}
+								onChange={e => setNewPlan({ ...newPlan, position: e.target.value })}
+							/>
+							<input
+								className="w-full border rounded px-3 py-2"
+								placeholder="Department"
+								value={newPlan.department}
+								onChange={e => setNewPlan({ ...newPlan, department: e.target.value })}
+							/>
+							<input
+								className="w-full border rounded px-3 py-2"
+								type="date"
+								value={newPlan.joinDate}
+								onChange={e => setNewPlan({ ...newPlan, joinDate: e.target.value })}
+							/>
+						</div>
+						<div className="flex justify-end gap-2 mt-4">
+							<Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+							<Button variant="primary" onClick={handleCreatePlan}>Create</Button>
+						</div>
 					</div>
 				</div>
 			)}

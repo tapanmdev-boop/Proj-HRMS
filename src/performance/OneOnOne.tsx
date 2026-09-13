@@ -253,43 +253,43 @@ function MeetingDetails({
 	);
 }
 
-// Move the inline component definition out of the parent component
-const OneOnOnePreviewModal = ({ session, onClose }: { session: any; onClose: () => void }) => (
-	<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-		<div className="bg-white rounded-lg p-6 w-full max-w-md">
-			<h2 className="text-xl font-bold mb-4">1:1 Preview</h2>
-			<div className="mb-4">
-				<p>
-					<span className="font-semibold">Employee:</span> {session?.employee}
-				</p>
-				<p>
-					<span className="font-semibold">Manager:</span> {session?.manager}
-				</p>
-				<p>
-					<span className="font-semibold">Date:</span> {session?.date}
-				</p>
-				{/* Add more fields as needed */}
-			</div>
-			<button
-				onClick={onClose}
-				className="bg-blue-500 text-white px-4 py-2 rounded"
-			>
-				Close
-			</button>
-		</div>
-	</div>
-);
-
 // Main component
 export default function OneOnOne() {	// State for meetings data
-	const [meetings] = useState<Meeting[]>(initialMeetingsData);
+	// Was `const [meetings] = useState(...)` — setter never destructured, so
+	// "Schedule New Meeting" had nothing to write to.
+	const [meetings, setMeetings] = useState<Meeting[]>(initialMeetingsData);
 	const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+	const [selectedTemplateId, setSelectedTemplateId] = useState('template1');
+	const [showScheduleModal, setShowScheduleModal] = useState(false);
+	const [newMeeting, setNewMeeting] = useState({ employeeName: '', managerName: '', scheduledDate: '', frequency: 'Weekly' });
 
 	// State for meeting notes
 	const [meetingNotes, setMeetingNotes] = useState<Record<string, string>>({});
 
 	// State for action items
 	const [actionItems, setActionItems] = useState<Record<string, ActionItem[]>>({});
+
+	const handleScheduleMeeting = () => {
+		if (!newMeeting.employeeName || !newMeeting.managerName || !newMeeting.scheduledDate) return;
+		setMeetings(prev => [
+			{ id: `meet-${Date.now()}`, ...newMeeting, status: 'Upcoming', agenda: '' },
+			...prev,
+		]);
+		setShowScheduleModal(false);
+		setNewMeeting({ employeeName: '', managerName: '', scheduledDate: '', frequency: 'Weekly' });
+	};
+
+	// Selecting an agenda template seeds that meeting's notes with the
+	// template's section outline (only if notes are still empty, so it never
+	// clobbers something the user already wrote).
+	const handleSelectTemplate = (templateId: string) => {
+		setSelectedTemplateId(templateId);
+		if (!selectedMeeting) return;
+		const template = agendaTemplates.find(t => t.id === templateId);
+		if (!template || meetingNotes[selectedMeeting.id]) return;
+		const outline = template.sections.map(s => `## ${s.title}\n${s.description}`).join('\n\n');
+		setMeetingNotes(prev => ({ ...prev, [selectedMeeting.id]: outline }));
+	};
 
 	// Format date for display
 	const formatDateTime = (dateString: string) => {
@@ -370,7 +370,7 @@ export default function OneOnOne() {	// State for meetings data
 			<PageHeader
 				title="1:1 Meetings"
 				subtitle="Schedule, prepare, and document one-on-one meetings"
-				actionButton={<Button>Schedule New Meeting</Button>}
+				actionButton={<Button onClick={() => setShowScheduleModal(true)}>Schedule New Meeting</Button>}
 			/>
 
 			<div className="mt-6 bg-white shadow overflow-hidden rounded-lg">
@@ -439,10 +439,11 @@ export default function OneOnOne() {	// State for meetings data
 								<div className="grid grid-cols-1 gap-2">
 									{agendaTemplates.map((template) => (
 										<button
-											key={template.id}											className={`p-2 border rounded text-left ${
-												template.id === 'template1' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300'
+											key={template.id}
+											className={`p-2 border rounded text-left ${
+												template.id === selectedTemplateId ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300'
 											}`}
-											onClick={() => {}}
+											onClick={() => handleSelectTemplate(template.id)}
 										>
 											{template.name}
 										</button>
@@ -469,6 +470,47 @@ export default function OneOnOne() {	// State for meetings data
 					</div>
 				</div>
 			)}
+
+		{showScheduleModal && (
+			<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+				<div className="bg-white rounded-lg p-6 w-full max-w-md">
+					<h3 className="text-lg font-medium mb-4">Schedule New Meeting</h3>
+					<div className="space-y-3">
+						<input
+							className="w-full border rounded px-3 py-2"
+							placeholder="Employee Name"
+							value={newMeeting.employeeName}
+							onChange={e => setNewMeeting({ ...newMeeting, employeeName: e.target.value })}
+						/>
+						<input
+							className="w-full border rounded px-3 py-2"
+							placeholder="Manager Name"
+							value={newMeeting.managerName}
+							onChange={e => setNewMeeting({ ...newMeeting, managerName: e.target.value })}
+						/>
+						<input
+							className="w-full border rounded px-3 py-2"
+							type="datetime-local"
+							value={newMeeting.scheduledDate}
+							onChange={e => setNewMeeting({ ...newMeeting, scheduledDate: e.target.value })}
+						/>
+						<select
+							className="w-full border rounded px-3 py-2"
+							value={newMeeting.frequency}
+							onChange={e => setNewMeeting({ ...newMeeting, frequency: e.target.value })}
+						>
+							<option>Weekly</option>
+							<option>Bi-weekly</option>
+							<option>Monthly</option>
+						</select>
+					</div>
+					<div className="flex justify-end gap-2 mt-4">
+						<Button variant="outline" onClick={() => setShowScheduleModal(false)}>Cancel</Button>
+						<Button variant="primary" onClick={handleScheduleMeeting}>Schedule</Button>
+					</div>
+				</div>
+			</div>
+		)}
 		</div>
 	);
 }

@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppSelector } from '../store/hooks';
 import { selectCurrentUser } from '../auth/authSlice';
+import { Button } from '../components/ui/Form';
 
 // Helper function to determine status class
 const getStatusClass = (status: string): string => {
@@ -85,12 +87,38 @@ const MOCK_LEAVE_BALANCE = {
   personal: { total: 5, used: 1, pending: 0, available: 4 }
 };
 
+// Map a leave-request "leaveType" label to its MOCK_LEAVE_BALANCE bucket key.
+// "Work from Home" has no entitlement bucket, so it's intentionally omitted.
+const LEAVE_TYPE_TO_BALANCE_KEY: Record<string, keyof typeof MOCK_LEAVE_BALANCE> = {
+  'Vacation': 'vacation',
+  'Sick Leave': 'sick',
+  'Personal Leave': 'personal',
+};
+
+function countDaysInclusive(startDate: string, endDate: string): number {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(1, diff + 1);
+}
+
 export default function LeaveManagement() {
-  const [activeTab, setActiveTab] = useState('requests'); // 'requests', 'my-leaves', 'apply'
-  const [leaveRequests, setLeaveRequests] = useState(MOCK_LEAVE_REQUESTS);
-  const [filterStatus, setFilterStatus] = useState('');
   const currentUser = useAppSelector(selectCurrentUser);
   const isHR = currentUser?.role === 'hr' || currentUser?.role === 'admin';
+  const [searchParams] = useSearchParams();
+  // Non-HR/admin users can't see the approvals tab, so default them
+  // somewhere they can actually see something. The Dashboard's "Add Leave
+  // Request" button links here with ?action=new to jump straight to the form
+  // (there's no separate /hrms/leaves/new route — it never existed).
+  const [activeTab, setActiveTab] = useState(
+    searchParams.get('action') === 'new' ? 'apply' : (isHR ? 'requests' : 'my-leaves')
+  ); // 'requests', 'my-leaves', 'apply'
+  // The real, mutable dataset — the filter below derives from this instead of
+  // re-reading the MOCK_LEAVE_REQUESTS constant, so approve/deny/submit
+  // actions survive a status-filter change.
+  const [allLeaveRequests, setAllLeaveRequests] = useState(MOCK_LEAVE_REQUESTS);
+  const [leaveBalance, setLeaveBalance] = useState(MOCK_LEAVE_BALANCE);
+  const [filterStatus, setFilterStatus] = useState('');
 
   const [newLeave, setNewLeave] = useState({
     leaveType: 'Vacation',
@@ -98,19 +126,21 @@ export default function LeaveManagement() {
     endDate: '',
     reason: ''
   });
+  const [submitConfirmation, setSubmitConfirmation] = useState('');
 
-  // Filter leave requests based on status
-  useEffect(() => {
-    if (filterStatus) {
-      setLeaveRequests(MOCK_LEAVE_REQUESTS.filter(leave => leave.status === filterStatus));
-    } else {
-      setLeaveRequests(MOCK_LEAVE_REQUESTS);
-    }
-  }, [filterStatus]);
+  const leaveRequests = useMemo(
+    () => filterStatus ? allLeaveRequests.filter(leave => leave.status === filterStatus) : allLeaveRequests,
+    [allLeaveRequests, filterStatus]
+  );
+
+  const myLeaveHistory = useMemo(
+    () => allLeaveRequests.filter(leave => leave.employeeEmail === currentUser?.email),
+    [allLeaveRequests, currentUser]
+  );
 
   const handleLeaveAction = (id: string, action: 'approve' | 'deny') => {
-    setLeaveRequests(prev => 
-      prev.map(leave => 
+    setAllLeaveRequests(prev =>
+      prev.map(leave =>
         leave.id === id ? { ...leave, status: action === 'approve' ? 'approved' : 'denied' } : leave
       )
     );
@@ -123,8 +153,42 @@ export default function LeaveManagement() {
 
   const handleSubmitLeave = (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, you would submit to an API
-    alert('Leave application submitted!');
+    if (!currentUser) return;
+
+    const days = countDaysInclusive(newLeave.startDate, newLeave.endDate);
+
+    setAllLeaveRequests(prev => [
+      {
+        id: `leave-${Date.now()}`,
+        employeeName: currentUser.name,
+        employeeEmail: currentUser.email,
+        employeeAvatar: currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase(),
+        leaveType: newLeave.leaveType,
+        startDate: newLeave.startDate,
+        endDate: newLeave.endDate,
+        days,
+        reason: newLeave.reason,
+        status: 'pending',
+        applied: new Date().toISOString().split('T')[0],
+      },
+      ...prev,
+    ]);
+
+    // Hold the requested days against the balance immediately (pending);
+    // a real backend would reconcile this against the approval outcome.
+    const balanceKey = LEAVE_TYPE_TO_BALANCE_KEY[newLeave.leaveType];
+    if (balanceKey) {
+      setLeaveBalance(prev => ({
+        ...prev,
+        [balanceKey]: {
+          ...prev[balanceKey],
+          used: prev[balanceKey].used + days,
+          available: Math.max(0, prev[balanceKey].available - days),
+        },
+      }));
+    }
+
+    setSubmitConfirmation(`Leave request submitted for ${days} day(s). It now appears under "My Leaves" and "Leave Requests".`);
     setNewLeave({
       leaveType: 'Vacation',
       startDate: '',
@@ -139,36 +203,17 @@ export default function LeaveManagement() {
         <div className="flex flex-col md:flex-row justify-between mb-6">
           <h2 className="text-xl font-medium text-gray-800 mb-4 md:mb-0">Leave Management</h2>
           <div className="flex space-x-2">
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'requests' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('requests')}
-            >
-              Leave Requests
-            </button>
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'my-leaves' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('my-leaves')}
-            >
+            {isHR && (
+              <Button variant={activeTab === 'requests' ? 'primary' : 'outline'} onClick={() => setActiveTab('requests')}>
+                Leave Requests
+              </Button>
+            )}
+            <Button variant={activeTab === 'my-leaves' ? 'primary' : 'outline'} onClick={() => setActiveTab('my-leaves')}>
               My Leaves
-            </button>
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'apply' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('apply')}
-            >
+            </Button>
+            <Button variant={activeTab === 'apply' ? 'primary' : 'outline'} onClick={() => setActiveTab('apply')}>
               Apply for Leave
-            </button>
+            </Button>
           </div>
         </div>
         
@@ -236,19 +281,13 @@ export default function LeaveManagement() {
                       </td>
                       <td className="px-6 py-4 text-right text-sm">
                         {leave.status === 'pending' && (
-                          <div className="flex justify-end space-x-2">
-                            <button 
-                              onClick={() => handleLeaveAction(leave.id, 'approve')}
-                              className="text-green-600 hover:text-green-900"
-                            >
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost-success" size="sm" onClick={() => handleLeaveAction(leave.id, 'approve')}>
                               Approve
-                            </button>
-                            <button 
-                              onClick={() => handleLeaveAction(leave.id, 'deny')}
-                              className="text-red-600 hover:text-red-900"
-                            >
+                            </Button>
+                            <Button variant="ghost-danger" size="sm" onClick={() => handleLeaveAction(leave.id, 'deny')}>
                               Deny
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -269,17 +308,17 @@ export default function LeaveManagement() {
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
                     <span className="block text-sm text-blue-600">Available</span>
-                    <span className="text-2xl font-bold text-blue-600">{MOCK_LEAVE_BALANCE.vacation.available}</span>
+                    <span className="text-2xl font-bold text-blue-600">{leaveBalance.vacation.available}</span>
                   </div>
                   <div>
                     <span className="block text-sm text-blue-600">Used</span>
-                    <span className="text-2xl font-bold text-blue-600">{MOCK_LEAVE_BALANCE.vacation.used}</span>
+                    <span className="text-2xl font-bold text-blue-600">{leaveBalance.vacation.used}</span>
                   </div>
                 </div>
                 <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
                   <div 
                     className="bg-blue-600 h-2 rounded-full" 
-                    style={{ width: `${(MOCK_LEAVE_BALANCE.vacation.used / MOCK_LEAVE_BALANCE.vacation.total) * 100}%` }}
+                    style={{ width: `${(leaveBalance.vacation.used / leaveBalance.vacation.total) * 100}%` }}
                   ></div>
                 </div>
               </div>
@@ -289,17 +328,17 @@ export default function LeaveManagement() {
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
                     <span className="block text-sm text-green-600">Available</span>
-                    <span className="text-2xl font-bold text-green-600">{MOCK_LEAVE_BALANCE.sick.available}</span>
+                    <span className="text-2xl font-bold text-green-600">{leaveBalance.sick.available}</span>
                   </div>
                   <div>
                     <span className="block text-sm text-green-600">Used</span>
-                    <span className="text-2xl font-bold text-green-600">{MOCK_LEAVE_BALANCE.sick.used}</span>
+                    <span className="text-2xl font-bold text-green-600">{leaveBalance.sick.used}</span>
                   </div>
                 </div>
                 <div className="mt-2 w-full bg-green-200 rounded-full h-2">
                   <div 
                     className="bg-green-600 h-2 rounded-full" 
-                    style={{ width: `${(MOCK_LEAVE_BALANCE.sick.used / MOCK_LEAVE_BALANCE.sick.total) * 100}%` }}
+                    style={{ width: `${(leaveBalance.sick.used / leaveBalance.sick.total) * 100}%` }}
                   ></div>
                 </div>
               </div>
@@ -309,17 +348,17 @@ export default function LeaveManagement() {
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
                     <span className="block text-sm text-purple-600">Available</span>
-                    <span className="text-2xl font-bold text-purple-600">{MOCK_LEAVE_BALANCE.personal.available}</span>
+                    <span className="text-2xl font-bold text-purple-600">{leaveBalance.personal.available}</span>
                   </div>
                   <div>
                     <span className="block text-sm text-purple-600">Used</span>
-                    <span className="text-2xl font-bold text-purple-600">{MOCK_LEAVE_BALANCE.personal.used}</span>
+                    <span className="text-2xl font-bold text-purple-600">{leaveBalance.personal.used}</span>
                   </div>
                 </div>
                 <div className="mt-2 w-full bg-purple-200 rounded-full h-2">
                   <div 
                     className="bg-purple-600 h-2 rounded-full" 
-                    style={{ width: `${(MOCK_LEAVE_BALANCE.personal.used / MOCK_LEAVE_BALANCE.personal.total) * 100}%` }}
+                    style={{ width: `${(leaveBalance.personal.used / leaveBalance.personal.total) * 100}%` }}
                   ></div>
                 </div>
               </div>
@@ -340,33 +379,28 @@ export default function LeaveManagement() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Sick Leave</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">May 14 - May 15, 2025</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">2</td>
-                      <td className="px-6 py-4 text-sm">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Approved</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">May 12, 2025</td>
-                    </tr>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Vacation</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">March 10 - March 15, 2025</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">5</td>
-                      <td className="px-6 py-4 text-sm">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Approved</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">Feb 15, 2025</td>
-                    </tr>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Personal</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">Feb 5, 2025</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">1</td>
-                      <td className="px-6 py-4 text-sm">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Denied</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">Feb 3, 2025</td>
-                    </tr>
+                    {myLeaveHistory.map(leave => (
+                      <tr key={leave.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{leave.leaveType}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {leave.startDate === leave.endDate
+                            ? new Date(leave.startDate).toLocaleDateString()
+                            : `${new Date(leave.startDate).toLocaleDateString()} - ${new Date(leave.endDate).toLocaleDateString()}`}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">{leave.days}</td>
+                        <td className="px-6 py-4 text-sm">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(leave.status)}`}>
+                            {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">{new Date(leave.applied).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                    {myLeaveHistory.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">No leave history yet.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -436,13 +470,16 @@ export default function LeaveManagement() {
                 />
               </div>
               
+              {submitConfirmation && (
+                <div className="rounded-md bg-success-50 border border-success-200 text-success-800 text-sm px-4 py-3">
+                  {submitConfirmation}
+                </div>
+              )}
+
               <div className="pt-3">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700"
-                >
+                <Button type="submit">
                   Submit Leave Request
-                </button>
+                </Button>
               </div>
             </form>
           </div>

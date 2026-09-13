@@ -98,8 +98,15 @@ const surveyTemplates = [
 ];
 
 export default function Surveys() {
+  // Was a plain const — no way for Create/Save as Draft/Launch/Edit to
+  // persist anything.
+  const [surveys, setSurveys] = useState(initialSurveys);
   const [selectedSurvey, setSelectedSurvey] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null);
+  const [formState, setFormState] = useState({ title: '', startDate: '', endDate: '', department: 'all' });
+  const [actionMessage, setActionMessage] = useState('');
 
   // Format date values
   const formatDate = (dateString: string) => {
@@ -156,7 +163,7 @@ export default function Surveys() {
   };
 
   // Format survey data for display
-  const formattedSurveys = initialSurveys.map(survey => ({
+  const formattedSurveys = surveys.map(survey => ({
     ...survey,
     dateRange: getDateRange(survey.startDate, survey.endDate),
     status: renderStatus(survey.status),
@@ -170,11 +177,56 @@ export default function Surveys() {
 
   const handleCreateSurvey = () => {
     setSelectedSurvey(null);
+    setEditingSurveyId(null);
+    setFormState({ title: '', startDate: '', endDate: '', department: 'all' });
     setShowTemplates(true);
   };
 
-  const getSurvey = (id: string) => {
-    return initialSurveys.find(survey => survey.id === id);
+  const handleEditSurvey = (survey: { id: string; title: string; startDate: string; endDate: string; department: string }) => {
+    setEditingSurveyId(survey.id);
+    setFormState({ title: survey.title, startDate: survey.startDate, endDate: survey.endDate, department: survey.department });
+    setSelectedSurvey(null);
+    setShowTemplates(true);
+  };
+
+  const getSurvey = (id: string | null) => {
+    return surveys.find(survey => survey.id === id);
+  };
+
+  const handleSaveSurvey = (status: 'Draft' | 'Active') => {
+    if (!formState.title) return;
+    if (editingSurveyId) {
+      setSurveys(prev => prev.map(s => s.id === editingSurveyId ? { ...s, ...formState, status } : s));
+    } else {
+      setSurveys(prev => [
+        { id: `survey-${Date.now()}`, ...formState, status, responseRate: 0 },
+        ...prev,
+      ]);
+    }
+    setShowTemplates(false);
+    setEditingSurveyId(null);
+  };
+
+  const handleLaunchSurvey = (id: string) => {
+    setSurveys(prev => prev.map(s => s.id === id
+      ? { ...s, status: 'Active', startDate: s.startDate || new Date().toISOString().split('T')[0] }
+      : s
+    ));
+  };
+
+  const showActionMessage = (message: string) => {
+    setActionMessage(message);
+    setTimeout(() => setActionMessage(''), 4000);
+  };
+
+  const handleDownload = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -186,6 +238,12 @@ export default function Surveys() {
           <Button onClick={handleCreateSurvey}>Create New Survey</Button>
         }
       />
+
+      {actionMessage && (
+        <div className="mt-4 rounded-md bg-success-50 border border-success-200 text-success-800 text-sm px-4 py-3">
+          {actionMessage}
+        </div>
+      )}
 
       <div className="mt-6 bg-white shadow overflow-hidden rounded-lg">
         <DataTable
@@ -200,7 +258,10 @@ export default function Surveys() {
                 {survey._original?.status === 'Draft' ? 'Edit' : 'View Results'}
               </button>
               {survey._original?.status === 'Active' && (
-                <button className="text-green-600 hover:text-green-800 text-sm">
+                <button
+                  className="text-green-600 hover:text-green-800 text-sm"
+                  onClick={() => showActionMessage(`Reminder sent to all pending recipients of "${survey.title}".`)}
+                >
                   Send Reminder
                 </button>
               )}
@@ -212,8 +273,8 @@ export default function Surveys() {
       {showTemplates ? (
         <div className="mt-6 bg-white shadow rounded-lg p-6">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-medium">Create New Survey</h3>
-            <Button variant="outline" onClick={() => setShowTemplates(false)}>
+            <h3 className="text-lg font-medium">{editingSurveyId ? 'Edit Survey' : 'Create New Survey'}</h3>
+            <Button variant="outline" onClick={() => { setShowTemplates(false); setEditingSurveyId(null); }}>
               Cancel
             </Button>
           </div>
@@ -223,27 +284,37 @@ export default function Surveys() {
               <Input
                 label="Survey Title"
                 placeholder="Enter survey title..."
+                value={formState.title}
+                onChange={e => setFormState({ ...formState, title: e.target.value })}
                 required
               />
               <div className="grid grid-cols-2 gap-4">
                 <Input
                   label="Start Date"
                   type="date"
+                  value={formState.startDate}
+                  onChange={e => setFormState({ ...formState, startDate: e.target.value })}
                   required
                 />
                 <Input
                   label="End Date"
                   type="date"
+                  value={formState.endDate}
+                  onChange={e => setFormState({ ...formState, endDate: e.target.value })}
                   required
                 />
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Department
               </label>
-              <select className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+              <select
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                value={formState.department}
+                onChange={e => setFormState({ ...formState, department: e.target.value })}
+              >
                 <option value="all">All Departments</option>
                 <option value="engineering">Engineering</option>
                 <option value="product">Product</option>
@@ -252,7 +323,7 @@ export default function Surveys() {
                 <option value="hr">Human Resources</option>
               </select>
             </div>
-            
+
             <div>
               <h4 className="font-medium mb-4">Survey Templates</h4>
               <div className="space-y-6">
@@ -261,25 +332,27 @@ export default function Surveys() {
                     <h5 className="font-medium text-gray-700 mb-2">{category.category}</h5>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {category.templates.map((template) => (
-                        <div 
+                        <button
                           key={template.id}
-                          className="border rounded-md p-4 hover:border-indigo-500 hover:bg-indigo-50 cursor-pointer transition-colors"
+                          type="button"
+                          onClick={() => setFormState({ ...formState, title: template.name })}
+                          className={`border rounded-md p-4 text-left hover:border-indigo-500 hover:bg-indigo-50 cursor-pointer transition-colors ${formState.title === template.name ? 'border-indigo-500 bg-indigo-50' : ''}`}
                         >
                           <h6 className="font-medium">{template.name}</h6>
                           <p className="text-sm text-gray-500 mt-1">
                             Use this template as a starting point
                           </p>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-            
+
             <div className="flex justify-end space-x-3">
-              <Button variant="outline">Save as Draft</Button>
-              <Button>Create Survey</Button>
+              <Button variant="outline" onClick={() => handleSaveSurvey('Draft')}>Save as Draft</Button>
+              <Button onClick={() => handleSaveSurvey('Active')}>{editingSurveyId ? 'Save Survey' : 'Create Survey'}</Button>
             </div>
           </div>
         </div>
@@ -338,21 +411,32 @@ export default function Surveys() {
                 <div className="flex flex-col space-y-2 mt-6">
                   {getSurvey(selectedSurvey)?.status === 'Active' && (
                     <>
-                      <Button>Send Reminder</Button>
-                      <Button variant="outline">Download Responses</Button>
+                      <Button onClick={() => showActionMessage(`Reminder sent to all pending recipients of "${getSurvey(selectedSurvey)?.title}".`)}>
+                        Send Reminder
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleDownload(`${selectedSurvey}-responses.csv`, `Survey,Response Rate\n${getSurvey(selectedSurvey)?.title},${getSurvey(selectedSurvey)?.responseRate}%\n`)}
+                      >
+                        Download Responses
+                      </Button>
                     </>
                   )}
                   {getSurvey(selectedSurvey)?.status === 'Completed' && (
-                    <>
-                      <Button>View Detailed Results</Button>
-                      <Button variant="outline">Download Report</Button>
-                    </>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleDownload(`${selectedSurvey}-report.txt`, `Report for ${getSurvey(selectedSurvey)?.title}\nResponse Rate: ${getSurvey(selectedSurvey)?.responseRate}%\n\n(Detailed results are shown in the panel to the right.)\n`)}
+                    >
+                      Download Report
+                    </Button>
                   )}
                   {getSurvey(selectedSurvey)?.status === 'Draft' && (
                     <>
-                      <Button>Edit Survey</Button>
-                      <Button variant="outline">Preview Survey</Button>
-                      <Button variant="outline">Launch Survey</Button>
+                      <Button onClick={() => { const s = getSurvey(selectedSurvey); if (s) handleEditSurvey(s); }}>
+                        Edit Survey
+                      </Button>
+                      <Button variant="outline" onClick={() => setShowPreviewModal(true)}>Preview Survey</Button>
+                      <Button variant="outline" onClick={() => selectedSurvey && handleLaunchSurvey(selectedSurvey)}>Launch Survey</Button>
                     </>
                   )}
                 </div>
@@ -502,8 +586,14 @@ export default function Surveys() {
         </div>
       )}
 
-      {/* Move the inline component definition out of the parent component */}
-      <SurveyPreviewModal survey={getSurvey(selectedSurvey)} onClose={() => setSelectedSurvey(null)} />
+      {/* This used to render unconditionally (relying on `survey` being
+          undefined when nothing was selected), which meant a full-screen
+          dark overlay + "Title: undefined" modal sat on top of this entire
+          page at all times. Now it only mounts when explicitly opened via
+          "Preview Survey". */}
+      {showPreviewModal && (
+        <SurveyPreviewModal survey={getSurvey(selectedSurvey)} onClose={() => setShowPreviewModal(false)} />
+      )}
     </div>
   );
 }

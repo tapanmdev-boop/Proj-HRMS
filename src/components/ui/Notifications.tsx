@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import { semanticColors, type SemanticColor } from './colorTokens';
 
 type AlertVariant = 'success' | 'error' | 'warning' | 'info';
+
+// Alert/Toast use 'error' (reads naturally as a prop name); Badge/Button use
+// the shared 'danger' token key. Map once here instead of duplicating colors.
+const ALERT_TO_SEMANTIC: Record<AlertVariant, SemanticColor> = {
+  success: 'success',
+  error: 'danger',
+  warning: 'warning',
+  info: 'info',
+};
 
 interface AlertProps {
   variant: AlertVariant;
@@ -35,7 +45,7 @@ export const Alert: React.FC<AlertProps> = ({
 
   const variantClasses: Record<AlertVariant, { bg: string; icon: React.ReactNode }> = {
     success: {
-      bg: 'bg-green-50 border-green-400 text-green-800',
+      bg: semanticColors[ALERT_TO_SEMANTIC.success].alert,
       icon: (
         <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
           <path
@@ -47,7 +57,7 @@ export const Alert: React.FC<AlertProps> = ({
       ),
     },
     error: {
-      bg: 'bg-red-50 border-red-400 text-red-800',
+      bg: semanticColors[ALERT_TO_SEMANTIC.error].alert,
       icon: (
         <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
           <path
@@ -59,7 +69,7 @@ export const Alert: React.FC<AlertProps> = ({
       ),
     },
     warning: {
-      bg: 'bg-yellow-50 border-yellow-400 text-yellow-800',
+      bg: semanticColors[ALERT_TO_SEMANTIC.warning].alert,
       icon: (
         <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
           <path
@@ -71,7 +81,7 @@ export const Alert: React.FC<AlertProps> = ({
       ),
     },
     info: {
-      bg: 'bg-blue-50 border-blue-400 text-blue-800',
+      bg: semanticColors[ALERT_TO_SEMANTIC.info].alert,
       icon: (
         <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
           <path
@@ -140,14 +150,14 @@ export const Toast: React.FC<ToastProps> = ({
   }, [id, duration, onClose]);
 
   const variantClasses: Record<AlertVariant, string> = {
-    success: 'bg-green-600',
-    error: 'bg-red-600',
-    warning: 'bg-yellow-600',
-    info: 'bg-blue-600',
+    success: semanticColors[ALERT_TO_SEMANTIC.success].solid,
+    error: semanticColors[ALERT_TO_SEMANTIC.error].solid,
+    warning: semanticColors[ALERT_TO_SEMANTIC.warning].solid,
+    info: semanticColors[ALERT_TO_SEMANTIC.info].solid,
   };
 
   return (
-    <div className={`${variantClasses[variant]} text-white rounded-lg shadow-lg p-4 mb-3 max-w-sm`}>
+    <div className={`${variantClasses[variant]} rounded-lg shadow-premium-lg p-4 mb-3 max-w-sm`}>
       <div className="flex items-center justify-between">
         <div className="flex-1 mr-2">{message}</div>
         <button
@@ -222,13 +232,13 @@ export const Badge: React.FC<{
   rounded?: boolean;
   size?: 'sm' | 'md';
 }> = ({ children, variant = 'primary', rounded = false, size = 'md' }) => {
-  const variantClasses = {
-    primary: 'bg-indigo-100 text-indigo-800',
-    secondary: 'bg-gray-100 text-gray-800',
-    success: 'bg-green-100 text-green-800',
-    danger: 'bg-red-100 text-red-800',
-    warning: 'bg-yellow-100 text-yellow-800',
-    info: 'bg-blue-100 text-blue-800',
+  const variantClasses: Record<typeof variant, string> = {
+    primary: semanticColors.primary.soft,
+    secondary: semanticColors.secondary.soft,
+    success: semanticColors.success.soft,
+    danger: semanticColors.danger.soft,
+    warning: semanticColors.warning.soft,
+    info: semanticColors.info.soft,
   };
 
   const sizeClasses = {

@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, RouteObject } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
+import type { RouteObject } from 'react-router-dom';
 
 const RecruitmentRoutes = lazy(() => import('./recruitment/routes'));
 const HrmsRoutes = lazy(() => import('./hrms/routes'));

@@ -45,10 +45,13 @@ export default function Feedback() {
 	const [feedbackType, setFeedbackType] = useState('all');
 	const [isGivingFeedback, setIsGivingFeedback] = useState(false);
 	const [selectedPerson, setSelectedPerson] = useState<number | null>(null);
+	const [respondingToRequestId, setRespondingToRequestId] = useState<number | null>(null);
+	const [formFeedbackType, setFormFeedbackType] = useState<'praise' | 'constructive'>('praise');
+	const [formMessage, setFormMessage] = useState('');
 	// Use our API hooks
-	const { feedback: receivedFeedback, loading: feedbackLoading, error: feedbackError } =
+	const { feedback: receivedFeedback, setFeedback: setReceivedFeedback, loading: feedbackLoading, error: feedbackError } =
 		useFeedback();
-	const { feedbackRequests, loading: requestsLoading, error: requestsError } =
+	const { feedbackRequests, setFeedbackRequests, loading: requestsLoading, error: requestsError } =
 		useFeedbackRequests();
 
 	// Handle loading and error states
@@ -73,6 +76,48 @@ export default function Feedback() {
 		feedbackType === 'all'
 			? receivedFeedback
 			: receivedFeedback.filter((feedback) => feedback.type === feedbackType);
+
+	// "Provide Feedback" on a pending request jumps to the give-feedback flow,
+	// pre-selecting the matching person (matched by name) and remembering
+	// which request to clear once feedback is actually submitted.
+	const handleProvideFeedback = (requestId: number, forName: string) => {
+		const person = mockPeople.find((p) => p.name === forName);
+		setRespondingToRequestId(requestId);
+		setSelectedPerson(person?.id ?? null);
+		setIsGivingFeedback(true);
+		setActiveTab('give');
+	};
+
+	const handleSubmitFeedback = (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!selectedPerson || !formMessage) return;
+		const person = mockPeople.find((p) => p.id === selectedPerson);
+		if (!person) return;
+
+		setReceivedFeedback((prev) => [
+			{
+				id: Date.now(),
+				from: 'You',
+				avatar: 'ME',
+				avatarColor: 'bg-gray-200 text-gray-700',
+				message: formMessage,
+				date: new Date().toISOString().split('T')[0],
+				type: formFeedbackType,
+			},
+			...prev,
+		]);
+
+		if (respondingToRequestId !== null) {
+			setFeedbackRequests((prev) => prev.filter((r) => r.id !== respondingToRequestId));
+		}
+
+		setIsGivingFeedback(false);
+		setSelectedPerson(null);
+		setRespondingToRequestId(null);
+		setFormMessage('');
+		setFormFeedbackType('praise');
+		setActiveTab('received');
+	};
 
 	return (
 		<div className="space-y-6">
@@ -223,7 +268,10 @@ export default function Feedback() {
 												</p>
 											</div>
 										</div>
-										<button className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700">
+										<button
+											onClick={() => handleProvideFeedback(request.id, request.for)}
+											className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+										>
 											Provide Feedback
 										</button>
 									</div>
@@ -311,7 +359,7 @@ export default function Feedback() {
 								</div>
 							</div>
 
-							<form>
+							<form onSubmit={handleSubmitFeedback}>
 								<fieldset className="mb-4">
 									<legend className="block text-sm font-medium text-gray-700 mb-1">
 										Feedback Type
@@ -327,7 +375,8 @@ export default function Feedback() {
 												name="feedbackType"
 												value="praise"
 												className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-												defaultChecked
+												checked={formFeedbackType === 'praise'}
+												onChange={() => setFormFeedbackType('praise')}
 											/>
 											<span className="ml-2 text-sm">Praise</span>
 										</label>
@@ -342,6 +391,8 @@ export default function Feedback() {
 												name="feedbackType"
 												value="constructive"
 												className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+												checked={formFeedbackType === 'constructive'}
+												onChange={() => setFormFeedbackType('constructive')}
 											/>
 											<span className="ml-2 text-sm">
 												Constructive Feedback
@@ -362,13 +413,16 @@ export default function Feedback() {
 										className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
 										rows={5}
 										placeholder="What would you like to share with your colleague?"
+										value={formMessage}
+										onChange={(e) => setFormMessage(e.target.value)}
+										required
 									></textarea>
 								</div>
 
 								<div className="flex justify-end space-x-3">
 									<button
 										type="button"
-										onClick={() => setIsGivingFeedback(false)}
+										onClick={() => { setIsGivingFeedback(false); setRespondingToRequestId(null); }}
 										className="px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm rounded-md hover:bg-gray-50"
 									>
 										Cancel

@@ -143,6 +143,3 @@ export const Breadcrumbs = ({ items }: { items: { label: string; path?: string }
     </nav>
   );
 };
-
-// Prefer nullish coalescing operator over logical OR
-const userName = user?.name ?? 'Guest';

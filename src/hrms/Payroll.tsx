@@ -1,6 +1,18 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppSelector } from '../store/hooks';
 import { selectCurrentUser } from '../auth/authSlice';
+import { Button } from '../components/ui/Form';
+import { generateWpsSif } from '../utils/wpsFile';
+
+// Demo employer WPS identifiers. A real deployment would pull these from the
+// tenant's own settings (MOHRE establishment registration + bank onboarding
+// pack), not hardcode them.
+const MOCK_EMPLOYER = {
+  establishmentId: 'EST-778899',
+  wpsAgentId: 'AGENT-4521',
+  employerIban: 'AE070331000000001234567',
+};
 
 // Mock payroll data
 const MOCK_PAYROLL_HISTORY = [
@@ -10,10 +22,10 @@ const MOCK_PAYROLL_HISTORY = [
     startDate: '2025-05-01',
     endDate: '2025-05-31',
     payDate: '2025-06-05',
-    grossPay: 5000,
-    netPay: 3750,
+    grossPay: 17500,
+    netPay: 17000,
     status: 'processed',
-    currency: 'USD'
+    currency: 'AED'
   },
   {
     id: '2',
@@ -21,10 +33,10 @@ const MOCK_PAYROLL_HISTORY = [
     startDate: '2025-04-01',
     endDate: '2025-04-30',
     payDate: '2025-05-05',
-    grossPay: 5000,
-    netPay: 3750,
+    grossPay: 17500,
+    netPay: 17000,
     status: 'processed',
-    currency: 'USD'
+    currency: 'AED'
   },
   {
     id: '3',
@@ -32,10 +44,10 @@ const MOCK_PAYROLL_HISTORY = [
     startDate: '2025-03-01',
     endDate: '2025-03-31',
     payDate: '2025-04-05',
-    grossPay: 5000,
-    netPay: 3750,
+    grossPay: 17500,
+    netPay: 17000,
     status: 'processed',
-    currency: 'USD'
+    currency: 'AED'
   },
   {
     id: '4',
@@ -43,10 +55,10 @@ const MOCK_PAYROLL_HISTORY = [
     startDate: '2025-02-01',
     endDate: '2025-02-28',
     payDate: '2025-03-05',
-    grossPay: 4800,
-    netPay: 3600,
+    grossPay: 16800,
+    netPay: 16300,
     status: 'processed',
-    currency: 'USD'
+    currency: 'AED'
   },
   {
     id: '5',
@@ -54,50 +66,56 @@ const MOCK_PAYROLL_HISTORY = [
     startDate: '2025-01-01',
     endDate: '2025-01-31',
     payDate: '2025-02-05',
-    grossPay: 4800,
-    netPay: 3600,
+    grossPay: 16800,
+    netPay: 16300,
     status: 'processed',
-    currency: 'USD'
+    currency: 'AED'
   }
 ];
 
-// Mock payslip details
+// Mock payslip details. UAE has no personal income tax, so — unlike the
+// India/US-style payslip this used to model — there's no "Income Tax" or
+// 401(k)-style "Retirement Fund" line; deductions here are limited to
+// things that actually apply (salary advances, unpaid leave, etc.).
 const MOCK_PAYSLIP_DETAILS = {
   employeeName: 'John Employee',
   employeeId: '3',
   department: 'Engineering',
   designation: 'Senior Developer',
-  bankAccount: '****4567',
+  iban: 'AE070331234567890123458',
   period: 'May 2025',
   payDate: '2025-06-05',
-  
+
   earnings: [
-    { label: 'Basic Salary', amount: 4000 },
-    { label: 'Housing Allowance', amount: 500 },
-    { label: 'Transport Allowance', amount: 300 },
-    { label: 'Performance Bonus', amount: 200 }
+    { label: 'Basic Salary', amount: 12000 },
+    { label: 'Housing Allowance', amount: 4000 },
+    { label: 'Transport Allowance', amount: 1000 },
+    { label: 'Other Allowances', amount: 500 }
   ],
-  
+
   deductions: [
-    { label: 'Income Tax', amount: 800 },
-    { label: 'Social Security', amount: 250 },
-    { label: 'Healthcare', amount: 150 },
-    { label: 'Retirement Fund', amount: 50 }
+    { label: 'Other Deductions', amount: 500 }
   ],
-  
-  totalEarnings: 5000,
-  totalDeductions: 1250,
-  netPay: 3750
+
+  totalEarnings: 17500,
+  totalDeductions: 500,
+  netPay: 17000
 };
 
-// Mock company employees for HR/Admin
+// Mock company employees for HR/Admin, with the UAE fields WPS needs.
 const MOCK_EMPLOYEES_PAYROLL = [
   {
     id: '1',
     name: 'John Smith',
     position: 'Senior Developer',
     department: 'Engineering',
-    salary: 4800,
+    basicSalary: 12000,
+    housingAllowance: 4000,
+    transportAllowance: 1000,
+    otherAllowances: 500,
+    laborCardNumber: 'LC-100234',
+    iban: 'AE070331234567890123456',
+    bankRoutingCode: 'ADCBAEAAXXX',
     paymentStatus: 'Paid',
     lastPaymentDate: '2025-06-05'
   },
@@ -106,7 +124,13 @@ const MOCK_EMPLOYEES_PAYROLL = [
     name: 'Maria Garcia',
     position: 'UX Designer',
     department: 'Design',
-    salary: 4200,
+    basicSalary: 10000,
+    housingAllowance: 3500,
+    transportAllowance: 1000,
+    otherAllowances: 300,
+    laborCardNumber: 'LC-100235',
+    iban: 'AE070331234567890123457',
+    bankRoutingCode: 'ADCBAEAAXXX',
     paymentStatus: 'Paid',
     lastPaymentDate: '2025-06-05'
   },
@@ -115,7 +139,13 @@ const MOCK_EMPLOYEES_PAYROLL = [
     name: 'David Johnson',
     position: 'Product Manager',
     department: 'Product',
-    salary: 5500,
+    basicSalary: 16000,
+    housingAllowance: 5000,
+    transportAllowance: 1200,
+    otherAllowances: 800,
+    laborCardNumber: 'LC-100236',
+    iban: 'AE070331234567890123458',
+    bankRoutingCode: 'ENBDAEAAXXX',
     paymentStatus: 'Paid',
     lastPaymentDate: '2025-06-05'
   },
@@ -124,7 +154,13 @@ const MOCK_EMPLOYEES_PAYROLL = [
     name: 'Linda Chen',
     position: 'Marketing Specialist',
     department: 'Marketing',
-    salary: 3800,
+    basicSalary: 9000,
+    housingAllowance: 3000,
+    transportAllowance: 800,
+    otherAllowances: 200,
+    laborCardNumber: 'LC-100237',
+    iban: 'AE070331234567890123459',
+    bankRoutingCode: 'ENBDAEAAXXX',
     paymentStatus: 'Paid',
     lastPaymentDate: '2025-06-05'
   },
@@ -133,22 +169,88 @@ const MOCK_EMPLOYEES_PAYROLL = [
     name: 'Robert Wilson',
     position: 'HR Manager',
     department: 'Human Resources',
-    salary: 4500,
+    basicSalary: 14000,
+    housingAllowance: 4500,
+    transportAllowance: 1000,
+    otherAllowances: 600,
+    laborCardNumber: 'LC-100238',
+    iban: 'AE070331234567890123460',
+    bankRoutingCode: 'FGBMAEADXXX',
     paymentStatus: 'Pending',
     lastPaymentDate: '2025-05-05'
   }
 ];
 
+const totalMonthlyPay = (e: typeof MOCK_EMPLOYEES_PAYROLL[number]) =>
+  e.basicSalary + e.housingAllowance + e.transportAllowance + e.otherAllowances;
+
+function downloadTextFile(fileName: string, content: string) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+// A plain-text payslip download — this is a minimal, real client-side
+// action so the button isn't a dead stub. Phase 1c (real backend) replaces
+// this with a proper PDF generated server-side from actual payroll data.
+function downloadPayslipText(payslip: typeof MOCK_PAYSLIP_DETAILS) {
+  const lines = [
+    `Payslip — ${payslip.period}`,
+    `Employee: ${payslip.employeeName} (${payslip.employeeId})`,
+    `${payslip.department} · ${payslip.designation}`,
+    `Pay Date: ${payslip.payDate}`,
+    '',
+    'Earnings:',
+    ...payslip.earnings.map(e => `  ${e.label}: AED ${e.amount.toLocaleString()}`),
+    `  Total Earnings: AED ${payslip.totalEarnings.toLocaleString()}`,
+    '',
+    'Deductions:',
+    ...payslip.deductions.map(d => `  ${d.label}: AED ${d.amount.toLocaleString()}`),
+    `  Total Deductions: AED ${payslip.totalDeductions.toLocaleString()}`,
+    '',
+    `Net Pay: AED ${payslip.netPay.toLocaleString()}`,
+  ];
+  downloadTextFile(`payslip-${payslip.period.replace(/\s+/g, '-').toLowerCase()}.txt`, lines.join('\n'));
+}
+
 export default function Payroll() {
-  const [activeTab, setActiveTab] = useState('history');  // 'history', 'payslip', 'run-payroll'
-  const [selectedPayslip, setSelectedPayslip] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
   const currentUser = useAppSelector(selectCurrentUser);
   const isHRorAdmin = currentUser?.role === 'hr' || currentUser?.role === 'admin';
+  // The Dashboard's "Run Payroll" button links here with ?tab=run-payroll
+  // (there's no separate /hrms/payroll/run route — it never existed).
+  const [activeTab, setActiveTab] = useState(
+    searchParams.get('tab') === 'run-payroll' && isHRorAdmin ? 'run-payroll' : 'history'
+  );  // 'history', 'payslip', 'run-payroll'
+  const [selectedPayslip, setSelectedPayslip] = useState<string | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState(MOCK_PAYROLL_HISTORY[0].period);
+  const [detailsEmployee, setDetailsEmployee] = useState<typeof MOCK_EMPLOYEES_PAYROLL[number] | null>(null);
+  const [runPayrollResult, setRunPayrollResult] = useState<string | null>(null);
 
   const viewPayslip = (payrollId: string) => {
     setSelectedPayslip(payrollId);
     setActiveTab('payslip');
   };
+
+  const selectedPayrollRecord = MOCK_PAYROLL_HISTORY.find(p => p.id === selectedPayslip);
+  // Interim, local-only view: the mock payslip line-items always come from
+  // MOCK_PAYSLIP_DETAILS regardless of which history row was clicked; Phase
+  // 1c's real backend returns the actual payslip per period/employee. We at
+  // least reflect the clicked row's real period/pay date/totals here so the
+  // header isn't silently wrong.
+  const payslipForView = selectedPayrollRecord
+    ? {
+        ...MOCK_PAYSLIP_DETAILS,
+        period: selectedPayrollRecord.period,
+        payDate: selectedPayrollRecord.payDate,
+        totalEarnings: selectedPayrollRecord.grossPay,
+        netPay: selectedPayrollRecord.netPay,
+      }
+    : MOCK_PAYSLIP_DETAILS;
 
   return (
     <div className="space-y-6">
@@ -156,39 +258,18 @@ export default function Payroll() {
         <div className="flex flex-col md:flex-row justify-between mb-6">
           <h2 className="text-xl font-medium text-gray-800 mb-4 md:mb-0">Payroll Management</h2>
           <div className="flex space-x-2">
-            <button 
-              className={`px-4 py-2 text-sm font-medium rounded-md ${
-                activeTab === 'history' 
-                  ? 'bg-indigo-600 text-white' 
-                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-              }`}
-              onClick={() => setActiveTab('history')}
-            >
+            <Button variant={activeTab === 'history' ? 'primary' : 'outline'} onClick={() => setActiveTab('history')}>
               {isHRorAdmin ? 'Payroll History' : 'My Paychecks'}
-            </button>
+            </Button>
             {selectedPayslip && (
-              <button 
-                className={`px-4 py-2 text-sm font-medium rounded-md ${
-                  activeTab === 'payslip' 
-                    ? 'bg-indigo-600 text-white' 
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-                onClick={() => setActiveTab('payslip')}
-              >
+              <Button variant={activeTab === 'payslip' ? 'primary' : 'outline'} onClick={() => setActiveTab('payslip')}>
                 View Payslip
-              </button>
+              </Button>
             )}
             {isHRorAdmin && (
-              <button 
-                className={`px-4 py-2 text-sm font-medium rounded-md ${
-                  activeTab === 'run-payroll' 
-                    ? 'bg-indigo-600 text-white' 
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-                onClick={() => setActiveTab('run-payroll')}
-              >
+              <Button variant={activeTab === 'run-payroll' ? 'primary' : 'outline'} onClick={() => setActiveTab('run-payroll')}>
                 Run Payroll
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -218,19 +299,20 @@ export default function Payroll() {
                         {new Date(payroll.payDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${payroll.grossPay.toLocaleString()}
+                        AED {payroll.grossPay.toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${payroll.netPay.toLocaleString()}
+                        AED {payroll.netPay.toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
                           {payroll.status.charAt(0).toUpperCase() + payroll.status.slice(1)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800"
-                          onClick={() => viewPayslip(payroll.id)}>
-                        View Payslip
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <Button variant="ghost-primary" size="sm" onClick={() => viewPayslip(payroll.id)}>
+                          View Payslip
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -249,13 +331,14 @@ export default function Payroll() {
               <select
                 id="period"
                 className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
               >
-                <option>May 2025</option>
-                <option>April 2025</option>
-                <option>March 2025</option>
-                <option>February 2025</option>
-                <option>January 2025</option>
+                {MOCK_PAYROLL_HISTORY.map(p => <option key={p.id} value={p.period}>{p.period}</option>)}
               </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Showing current employee roster for {selectedPeriod}. Per-period payroll snapshots will land with the real backend.
+              </p>
             </div>
             
             {/* Employee payroll table */}
@@ -285,7 +368,7 @@ export default function Payroll() {
                         {employee.position}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${employee.salary.toLocaleString()}
+                        AED {totalMonthlyPay(employee).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -297,36 +380,63 @@ export default function Payroll() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(employee.lastPaymentDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 cursor-pointer hover:text-blue-800">
-                        View Details
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <Button variant="ghost-primary" size="sm" onClick={() => setDetailsEmployee(employee)}>
+                          View Details
+                        </Button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {detailsEmployee && (
+              <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+                <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                  <h3 className="text-lg font-medium mb-4">Payroll Details</h3>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-semibold">Name:</span> {detailsEmployee.name}</p>
+                    <p><span className="font-semibold">Position:</span> {detailsEmployee.position}</p>
+                    <p><span className="font-semibold">Department:</span> {detailsEmployee.department}</p>
+                    <p><span className="font-semibold">Basic Salary:</span> AED {detailsEmployee.basicSalary.toLocaleString()}</p>
+                    <p><span className="font-semibold">Housing Allowance:</span> AED {detailsEmployee.housingAllowance.toLocaleString()}</p>
+                    <p><span className="font-semibold">Transport Allowance:</span> AED {detailsEmployee.transportAllowance.toLocaleString()}</p>
+                    <p><span className="font-semibold">Other Allowances:</span> AED {detailsEmployee.otherAllowances.toLocaleString()}</p>
+                    <p><span className="font-semibold">Total Monthly Pay:</span> AED {totalMonthlyPay(detailsEmployee).toLocaleString()}</p>
+                    <p><span className="font-semibold">Labour Card:</span> {detailsEmployee.laborCardNumber}</p>
+                    <p><span className="font-semibold">IBAN:</span> {detailsEmployee.iban}</p>
+                    <p><span className="font-semibold">Payment Status:</span> {detailsEmployee.paymentStatus}</p>
+                    <p><span className="font-semibold">Last Payment:</span> {new Date(detailsEmployee.lastPaymentDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                  </div>
+                  <div className="flex justify-end mt-4">
+                    <Button variant="outline" onClick={() => setDetailsEmployee(null)}>Close</Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
-        
+
         {/* Payslip view */}
         {activeTab === 'payslip' && selectedPayslip && (
           <div className="space-y-6">
             <div className="text-right mb-4">
-              <button className="text-sm font-medium text-white">
+              <Button variant="outline" onClick={() => downloadPayslipText(payslipForView)}>
                 Download PDF
-              </button>
+              </Button>
             </div>
-            
+
             {/* Payslip header */}
             <div className="flex flex-col md:flex-row justify-between border-b pb-6">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">Payslip for {MOCK_PAYSLIP_DETAILS.period}</h3>
-                <p className="text-gray-500">Pay Date: {new Date(MOCK_PAYSLIP_DETAILS.payDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                <h3 className="text-lg font-medium text-gray-900">Payslip for {payslipForView.period}</h3>
+                <p className="text-gray-500">Pay Date: {new Date(payslipForView.payDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
               </div>
               <div className="mt-4 md:mt-0 text-right">
-                <p className="text-gray-900 font-medium">{MOCK_PAYSLIP_DETAILS.employeeName}</p>
-                <p className="text-gray-500">{MOCK_PAYSLIP_DETAILS.department} • {MOCK_PAYSLIP_DETAILS.designation}</p>
-                <p className="text-gray-500">Employee ID: {MOCK_PAYSLIP_DETAILS.employeeId}</p>
+                <p className="text-gray-900 font-medium">{payslipForView.employeeName}</p>
+                <p className="text-gray-500">{payslipForView.department} • {payslipForView.designation}</p>
+                <p className="text-gray-500">Employee ID: {payslipForView.employeeId}</p>
               </div>
             </div>
             
@@ -341,15 +451,15 @@ export default function Payroll() {
                       <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">                    {MOCK_PAYSLIP_DETAILS.earnings.map((item) => (
+                  <tbody className="bg-white divide-y divide-gray-200">                    {payslipForView.earnings.map((item) => (
                       <tr key={`earning-${item.label}`} className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-sm text-gray-900">{item.label}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900 text-right">${item.amount.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {item.amount.toLocaleString()}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-50 font-medium">
                       <td className="px-4 py-2 text-sm text-gray-900">Total Earnings</td>
-                      <td className="px-4 py-2 text-sm text-gray-900 text-right">${MOCK_PAYSLIP_DETAILS.totalEarnings.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {payslipForView.totalEarnings.toLocaleString()}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -364,15 +474,15 @@ export default function Payroll() {
                       <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">                    {MOCK_PAYSLIP_DETAILS.deductions.map((item) => (
+                  <tbody className="bg-white divide-y divide-gray-200">                    {payslipForView.deductions.map((item) => (
                       <tr key={`deduction-${item.label}`} className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-sm text-gray-900">{item.label}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900 text-right">${item.amount.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {item.amount.toLocaleString()}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-50 font-medium">
                       <td className="px-4 py-2 text-sm text-gray-900">Total Deductions</td>
-                      <td className="px-4 py-2 text-sm text-gray-900 text-right">${MOCK_PAYSLIP_DETAILS.totalDeductions.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {payslipForView.totalDeductions.toLocaleString()}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -383,9 +493,9 @@ export default function Payroll() {
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium">Net Pay</h3>
-                <p className="text-2xl font-bold text-indigo-600">${MOCK_PAYSLIP_DETAILS.netPay.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-indigo-600">AED {payslipForView.netPay.toLocaleString()}</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1">Paid to account ending in {MOCK_PAYSLIP_DETAILS.bankAccount}</p>
+              <p className="text-sm text-gray-500 mt-1">Paid via WPS to {payslipForView.iban}</p>
             </div>
           </div>
         )}
@@ -439,34 +549,76 @@ export default function Payroll() {
                 </div>
               </div>
               
-              {/* Payroll summary */}
+              {/* Payroll summary — computed from the actual roster below
+                  instead of hardcoded figures, so it can't drift out of sync. */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
                 <h3 className="text-md font-medium text-gray-800 mb-3">Payroll Summary</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <p className="text-sm text-gray-500">Total Employees</p>
-                    <p className="text-xl font-medium text-gray-900 mt-1">5</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Total Gross Pay</p>
-                    <p className="text-xl font-medium text-gray-900 mt-1">$22,800</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Total Net Pay</p>
-                    <p className="text-xl font-medium text-gray-900 mt-1">$17,050</p>
-                  </div>
-                </div>
+                {(() => {
+                  const totalGross = MOCK_EMPLOYEES_PAYROLL.reduce((sum, e) => sum + totalMonthlyPay(e), 0);
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <p className="text-sm text-gray-500">Total Employees</p>
+                        <p className="text-xl font-medium text-gray-900 mt-1">{MOCK_EMPLOYEES_PAYROLL.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Total Gross Pay</p>
+                        <p className="text-xl font-medium text-gray-900 mt-1">AED {totalGross.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Employer WPS ID</p>
+                        <p className="text-xl font-medium text-gray-900 mt-1">{MOCK_EMPLOYER.establishmentId}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-              
+
+              {runPayrollResult && (
+                <div className="rounded-md bg-success-50 border border-success-200 text-success-800 text-sm px-4 py-3">
+                  {runPayrollResult}
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="flex justify-end space-x-3 pt-6">
-                <button type="button" className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setRunPayrollResult(`Preview generated for ${MOCK_EMPLOYEES_PAYROLL.length} employees — review the summary above before processing.`)}
+                >
                   Preview
-                </button>
-                <button type="button" className="px-4 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+                </Button>
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={() => {
+                    const { fileName, content } = generateWpsSif({
+                      employer: MOCK_EMPLOYER,
+                      payPeriod: new Date().toISOString().slice(0, 7),
+                      payments: MOCK_EMPLOYEES_PAYROLL.map(e => ({
+                        laborCardNumber: e.laborCardNumber,
+                        iban: e.iban,
+                        bankRoutingCode: e.bankRoutingCode,
+                        fixedAmount: e.basicSalary + e.housingAllowance + e.transportAllowance,
+                        variableAmount: e.otherAllowances,
+                        daysWorked: 30,
+                        leaveDays: 0,
+                      })),
+                    });
+                    downloadTextFile(fileName, content);
+                    setRunPayrollResult(`WPS file "${fileName}" generated for ${MOCK_EMPLOYEES_PAYROLL.length} employees. Validate the field layout against your bank's WPS template before submitting it.`);
+                  }}
+                >
+                  Generate WPS File
+                </Button>
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={() => setRunPayrollResult(`Payroll run queued for ${MOCK_EMPLOYEES_PAYROLL.length} employees. Real bank disbursement requires the Phase 1c backend.`)}
+                >
                   Process Payroll
-                </button>
+                </Button>
               </div>
             </form>
           </div>

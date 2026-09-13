@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { PageHeader, DataTable } from '../components/ui/Dashboard';
-import { Select } from '../components/ui/Form';
+import { Select, Button, Input } from '../components/ui/Form';
 import { Badge } from '../components/ui/Notifications';
 
 // Mock candidate data
@@ -130,19 +129,22 @@ function CandidateRating({ rating }: { readonly rating: number | null }) {
 	);
 }
 
-// Move actions function out of the parent and pass as a prop
-function ActionsComponent({ row }: { readonly row: any }) {
+function ActionsComponent({ row, onViewProfile, onUpdateStatus }: {
+	readonly row: any;
+	readonly onViewProfile: (id: string) => void;
+	readonly onUpdateStatus: (id: string) => void;
+}) {
 	return (
 		<div className="flex space-x-2">
 			<button
 				className="text-blue-600 hover:text-blue-800 text-sm"
-				onClick={() => console.log('View profile for', row.id)}
+				onClick={() => onViewProfile(row.id)}
 			>
 				View Profile
 			</button>
 			<button
 				className="text-green-600 hover:text-green-800 text-sm"
-				onClick={() => console.log('Update status for', row.id)}
+				onClick={() => onUpdateStatus(row.id)}
 			>
 				Update Status
 			</button>
@@ -150,12 +152,15 @@ function ActionsComponent({ row }: { readonly row: any }) {
 	);
 }
 
-// Define RowType or use 'any' for row parameter in renderActions
-const renderActions = (row: any) => <ActionsComponent row={row} />;
-
 export default function CandidateTracking() {
+	// Was a plain const — no way to add candidates or update their status.
+	const [candidates, setCandidates] = useState(initialCandidates);
 	const [statusFilter, setStatusFilter] = useState('all');
 	const [positionFilter, setPositionFilter] = useState('all');
+	const [showAddModal, setShowAddModal] = useState(false);
+	const [newCandidate, setNewCandidate] = useState({ name: '', email: '', jobTitle: '' });
+	const [viewingCandidateId, setViewingCandidateId] = useState<string | null>(null);
+	const [updatingCandidateId, setUpdatingCandidateId] = useState<string | null>(null);
 
 	const handleStatusFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
 		setStatusFilter(e.target.value);
@@ -165,7 +170,26 @@ export default function CandidateTracking() {
 		setPositionFilter(e.target.value);
 	};
 
-	const filteredCandidates = initialCandidates.filter((candidate) => {
+	const handleAddCandidate = () => {
+		if (!newCandidate.name || !newCandidate.email || !newCandidate.jobTitle) return;
+		setCandidates(prev => [
+			{ id: `cand-${Date.now()}`, ...newCandidate, status: 'Applied', appliedDate: new Date().toISOString().split('T')[0], rating: null },
+			...prev,
+		]);
+		setShowAddModal(false);
+		setNewCandidate({ name: '', email: '', jobTitle: '' });
+	};
+
+	const handleUpdateStatus = (id: string, status: string) => {
+		setCandidates(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+		setUpdatingCandidateId(null);
+	};
+
+	const renderActions = (row: any) => (
+		<ActionsComponent row={row} onViewProfile={setViewingCandidateId} onUpdateStatus={setUpdatingCandidateId} />
+	);
+
+	const filteredCandidates = candidates.filter((candidate) => {
 		const matchesStatus = statusFilter === 'all' || candidate.status === statusFilter;
 		const matchesPosition = positionFilter === 'all' || candidate.jobTitle === positionFilter;
 		return matchesStatus && matchesPosition;
@@ -193,9 +217,7 @@ export default function CandidateTracking() {
 				title="Candidate Tracking"
 				subtitle="Manage and track job applicants through the hiring process"
 				actionButton={
-					<Link to="#" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-						Add Candidate
-					</Link>
+					<Button onClick={() => setShowAddModal(true)}>Add Candidate</Button>
 				}
 			/>
 
@@ -245,6 +267,70 @@ export default function CandidateTracking() {
 					actions={renderActions}
 				/>
 			</div>
+
+			{showAddModal && (
+				<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+					<div className="bg-white rounded-lg p-6 w-full max-w-md">
+						<h3 className="text-lg font-medium mb-4">Add Candidate</h3>
+						<div className="space-y-3">
+							<Input label="Full Name" value={newCandidate.name} onChange={e => setNewCandidate({ ...newCandidate, name: e.target.value })} />
+							<Input label="Email" type="email" value={newCandidate.email} onChange={e => setNewCandidate({ ...newCandidate, email: e.target.value })} />
+							<Select
+								label="Position"
+								id="newCandidateJobTitle"
+								name="jobTitle"
+								value={newCandidate.jobTitle}
+								onChange={e => setNewCandidate({ ...newCandidate, jobTitle: e.target.value })}
+								options={positionOptions.filter(o => o.value !== 'all')}
+							/>
+						</div>
+						<div className="flex justify-end gap-2 mt-4">
+							<Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
+							<Button variant="primary" onClick={handleAddCandidate}>Add</Button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{viewingCandidateId && (() => {
+				const candidate = candidates.find(c => c.id === viewingCandidateId);
+				if (!candidate) return null;
+				return (
+					<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+						<div className="bg-white rounded-lg p-6 w-full max-w-md">
+							<h3 className="text-lg font-medium mb-4">{candidate.name}</h3>
+							<div className="space-y-2 text-sm">
+								<p><span className="font-semibold">Email:</span> {candidate.email}</p>
+								<p><span className="font-semibold">Position:</span> {candidate.jobTitle}</p>
+								<p><span className="font-semibold">Status:</span> {candidate.status}</p>
+								<p><span className="font-semibold">Applied:</span> {formatDate(candidate.appliedDate)}</p>
+								<p><span className="font-semibold">Rating:</span> {candidate.rating ?? 'Not rated'}</p>
+							</div>
+							<div className="flex justify-end mt-4">
+								<Button variant="outline" onClick={() => setViewingCandidateId(null)}>Close</Button>
+							</div>
+						</div>
+					</div>
+				);
+			})()}
+
+			{updatingCandidateId && (
+				<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+					<div className="bg-white rounded-lg p-6 w-full max-w-md">
+						<h3 className="text-lg font-medium mb-4">Update Status</h3>
+						<div className="grid grid-cols-2 gap-2">
+							{statusOptions.filter(o => o.value !== 'all').map(o => (
+								<Button key={o.value} variant="outline" onClick={() => handleUpdateStatus(updatingCandidateId, o.value)}>
+									{o.label}
+								</Button>
+							))}
+						</div>
+						<div className="flex justify-end mt-4">
+							<Button variant="outline" onClick={() => setUpdatingCandidateId(null)}>Cancel</Button>
+						</div>
+					</div>
+				</div>
+			)}
 		</>
 	);
 }
