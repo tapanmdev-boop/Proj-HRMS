@@ -28,19 +28,20 @@ model Tenant {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  users              User[]
-  employees          Employee[]
-  departments        Department[]
-  attendances        Attendance[]
-  leaves             Leave[]
-  payslips           Payslip[]
-  documents          Document[]
-  notifications      Notification[]
-  performanceReviews PerformanceReview[]
-  goals              Goal[]
-  auditLogs          AuditLog[]
-  holidays           Holiday[]
-  leavePolicies      LeavePolicy[]
+  users                 User[]
+  employees             Employee[]
+  departments           Department[]
+  attendances           Attendance[]
+  leaves                Leave[]
+  payslips              Payslip[]
+  documents             Document[]
+  notifications         Notification[]
+  performanceReviews    PerformanceReview[]
+  goals                 Goal[]
+  auditLogs             AuditLog[]
+  holidays              Holiday[]
+  attendanceCorrections AttendanceCorrection[]
+  leavePolicies         LeavePolicy[]
 
   @@map("tenants")
 }
@@ -151,18 +152,19 @@ model Employee {
   updatedAt        DateTime  @updatedAt
   tenantId         String
 
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department   Department?         @relation(fields: [departmentId], references: [id])
-  manager      Employee?           @relation("EmployeeToManager", fields: [managerId], references: [id], onDelete: SetNull)
-  subordinates Employee[]          @relation("EmployeeToManager")
-  attendances  Attendance[]
-  leaves       Leave[]
-  payslips     Payslip[]
-  documents    Document[]
-  reviews      PerformanceReview[] @relation("ReviewedEmployee")
-  reviewsGiven PerformanceReview[] @relation("Reviewer")
-  goals        Goal[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department            Department?            @relation(fields: [departmentId], references: [id])
+  manager               Employee?              @relation("EmployeeToManager", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates          Employee[]             @relation("EmployeeToManager")
+  attendances           Attendance[]
+  leaves                Leave[]
+  attendanceCorrections AttendanceCorrection[]
+  payslips              Payslip[]
+  documents             Document[]
+  reviews               PerformanceReview[]    @relation("ReviewedEmployee")
+  reviewsGiven          PerformanceReview[]    @relation("Reviewer")
+  goals                 Goal[]
 
   @@unique([tenantId, employeeId])
   @@index([tenantId])
@@ -203,6 +205,7 @@ model Attendance {
   date       DateTime         @db.Date
   status     AttendanceStatus @default(PRESENT)
   note       String?
+  source     AttendanceSource @default(WEB)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
   tenantId   String
@@ -448,4 +451,40 @@ model LeavePolicy {
 
   @@unique([tenantId, leaveType])
   @@map("leave_policies")
+}
+
+enum AttendanceSource {
+  WEB
+  CORRECTION
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// A request to add or fix the attendance of one day. Applying it (on approval) writes the attendance record.
+model AttendanceCorrection {
+  id              String           @id @default(uuid())
+  tenantId        String
+  employeeId      String
+  date            DateTime         @db.Date // the organization-local calendar day
+  clockIn         DateTime
+  clockOut        DateTime
+  reason          String
+  status          CorrectionStatus @default(PENDING)
+  decidedById     String?
+  decidedAt       DateTime?
+  rejectionReason String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([employeeId, date])
+  @@map("attendance_corrections")
 }
