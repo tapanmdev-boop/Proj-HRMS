@@ -57,8 +57,15 @@ export function login(app: INestApplication, slug: string, email: string, passwo
   return request(app.getHttpServer()).post('/api/auth/login').send({ tenant: slug, email, password });
 }
 
+const suiteStartedAt = new Date();
+
 export async function cleanup(app: INestApplication, slugs: string[]) {
   const prisma = app.get(PrismaService);
+  const tenants = await prisma.tenant.findMany({ where: { name: { in: slugs } }, select: { id: true } });
+  // Audit rows are kept when a tenant is deleted, so remove this run's rows explicitly.
+  await prisma.auditLog.deleteMany({
+    where: { OR: [{ tenantId: { in: tenants.map((t) => t.id) } }, { tenantId: null, createdAt: { gte: suiteStartedAt } }] },
+  });
   await prisma.tenant.deleteMany({ where: { name: { in: slugs } } });
   await app.close();
 }

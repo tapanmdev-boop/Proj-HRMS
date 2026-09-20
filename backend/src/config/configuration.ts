@@ -17,7 +17,8 @@ export default () => ({
   },
   jwt: {
     secret: process.env.JWT_SECRET,
-    expirationTime: toInt(process.env.JWT_EXPIRATION_TIME, 3600),
+    expirationTime: toInt(process.env.JWT_EXPIRATION_TIME, 900), // access token lifetime, seconds
+    refreshTtlDays: toInt(process.env.REFRESH_TOKEN_TTL_DAYS, 7),
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',

@@ -1,5 +1,6 @@
-import { IsEmail, IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsCountryCode, IsCurrencyCode, IsIanaTimezone, IsLocaleTag } from '../../common/validators/locale.validators';
 
 export class SignupDto {
   @ApiProperty({ example: 'Acme Corporation' })
@@ -37,4 +38,25 @@ export class SignupDto {
   @IsNotEmpty()
   @MaxLength(100)
   lastName: string;
+
+  // Regional settings: any country, language, timezone and currency known to ICU is accepted.
+  @ApiProperty({ required: false, example: 'DE', description: 'ISO 3166-1 alpha-2' })
+  @IsCountryCode()
+  @IsOptional()
+  countryCode?: string;
+
+  @ApiProperty({ required: false, example: 'de', description: 'BCP 47 language tag' })
+  @IsLocaleTag()
+  @IsOptional()
+  defaultLocale?: string;
+
+  @ApiProperty({ required: false, example: 'Europe/Berlin', description: 'IANA timezone' })
+  @IsIanaTimezone()
+  @IsOptional()
+  defaultTimezone?: string;
+
+  @ApiProperty({ required: false, example: 'EUR', description: 'ISO 4217' })
+  @IsCurrencyCode()
+  @IsOptional()
+  baseCurrency?: string;
 }

@@ -5,13 +5,15 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ReqContext, RequestContext } from '../common/decorators/request-context.decorator';
 import { AuthUser } from '../common/types/auth-user.interface';
 
 // Credential endpoints get a much tighter rate limit than the global default.
 // The limit is read per request so it can be tuned via AUTH_THROTTLE_LIMIT (default 10 per minute per client).
-const AUTH_THROTTLE = { default: { limit: () => parseInt(process.env.AUTH_THROTTLE_LIMIT ?? "", 10) || 10, ttl: 60_000 } };
+const AUTH_THROTTLE = { default: { limit: () => parseInt(process.env.AUTH_THROTTLE_LIMIT ?? '', 10) || 10, ttl: 60_000 } };
 
 @ApiTags('auth')
 @Controller('auth')
@@ -25,8 +27,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Sign in with email and password' })
   @ApiResponse({ status: 200, description: 'Signed in' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @ReqContext() ctx: RequestContext) {
+    return this.authService.login(dto, ctx);
   }
 
   @Public()
@@ -36,8 +38,27 @@ export class AuthController {
   @ApiResponse({ status: 201, description: 'Organization created' })
   @ApiResponse({ status: 403, description: 'Self-service sign-up is disabled' })
   @ApiResponse({ status: 409, description: 'Organization slug already taken' })
-  signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+  signup(@Body() dto: SignupDto, @ReqContext() ctx: RequestContext) {
+    return this.authService.signup(dto, ctx);
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rotate a refresh token for a new access token' })
+  @ApiResponse({ status: 401, description: 'Invalid, expired or reused refresh token' })
+  refresh(@Body() dto: RefreshTokenDto, @ReqContext() ctx: RequestContext) {
+    return this.authService.refresh(dto.refreshToken, ctx);
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Revoke a refresh token (ends the session)' })
+  logout(@Body() dto: RefreshTokenDto, @ReqContext() ctx: RequestContext) {
+    return this.authService.logout(dto.refreshToken, ctx);
   }
 
   @Get('profile')

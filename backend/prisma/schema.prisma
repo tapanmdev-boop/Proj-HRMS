@@ -7,52 +7,72 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Multi-tenancy support
+// ---------------------------------------------------------------------------
+// Tenancy. Every business table carries tenantId; uniqueness is always
+// per tenant. Regional behaviour (country, language, timezone, currency) is
+// configuration on the tenant, never hardcoded.
+// ---------------------------------------------------------------------------
 model Tenant {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  displayName String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  name                 String   @unique // organization slug
+  displayName          String
+  isActive             Boolean  @default(true)
+  countryCode          String?  @db.Char(2) // ISO 3166-1 alpha-2, e.g. "IN", "US", "AE", "GB"
+  defaultLocale        String   @default("en") // BCP 47 language tag, e.g. "en", "fr-CA", "ar"
+  defaultTimezone      String   @default("UTC") // IANA timezone, e.g. "Asia/Kolkata"
+  baseCurrency         String   @default("USD") @db.Char(3) // ISO 4217
+  weekStartsOn         Int      @default(1) // 0 = Sunday ... 6 = Saturday
+  fiscalYearStartMonth Int      @default(1) // 1-12
+  settings             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  // Relationships
-  users        User[]
-  employees    Employee[]
-  departments  Department[]
-  attendances  Attendance[]
-  leaves       Leave[]
-  payslips     Payslip[]
-  documents    Document[]
-  notifications Notification[]
+  users              User[]
+  employees          Employee[]
+  departments        Department[]
+  attendances        Attendance[]
+  leaves             Leave[]
+  payslips           Payslip[]
+  documents          Document[]
+  notifications      Notification[]
+  performanceReviews PerformanceReview[]
+  goals              Goal[]
+  auditLogs          AuditLog[]
 
   @@map("tenants")
 }
 
 // User model for authentication and access control
 model User {
-  id             String   @id @default(uuid())
-  email          String   @unique
-  password       String?
-  passwordResetToken String?
+  id                   String    @id @default(uuid())
+  email                String
+  password             String?
+  passwordResetToken   String?
   passwordResetExpires DateTime?
-  firstName      String
-  lastName       String
-  isActive       Boolean  @default(true)
-  lastLogin      DateTime?
-  role           Role     @default(EMPLOYEE)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  googleId       String?  @unique
-  microsoftId    String?  @unique
-  tenantId       String
+  firstName            String
+  lastName             String
+  isActive             Boolean   @default(true)
+  lastLogin            DateTime?
+  role                 Role      @default(EMPLOYEE)
+  locale               String? // overrides tenant default when set
+  timezone             String? // overrides tenant default when set
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  googleId             String?
+  microsoftId          String?
+  tenantId             String
 
-  // Relationships
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  employee      Employee?
-  sentNotifications Notification[] @relation("SentBy")
+  tenant                Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee              Employee?
+  sentNotifications     Notification[] @relation("SentBy")
   receivedNotifications Notification[] @relation("ReceivedBy")
+  approvedLeaves        Leave[]        @relation("LeaveApprovedBy")
+  refreshTokens         RefreshToken[]
 
   @@unique([email, tenantId])
+  @@unique([tenantId, googleId])
+  @@unique([tenantId, microsoftId])
+  @@index([tenantId, role])
   @@map("users")
 }
 
@@ -63,41 +83,86 @@ enum Role {
   EMPLOYEE
 }
 
+// Rotating refresh tokens. Only a SHA-256 hash of the opaque token is stored.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  tokenHash    String    @unique
+  familyId     String // all tokens descended from one login share a family
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// Append-only record of security- and data-relevant actions.
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String?
+  actorId    String?
+  action     String // e.g. "user.create", "auth.login.failed"
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
 // Employee profile
 model Employee {
-  id            String   @id @default(uuid())
-  employeeId    String   @unique
-  userId        String   @unique
-  departmentId  String?
-  managerId     String?
-  position      String
-  joinDate      DateTime
-  terminationDate DateTime?
-  dateOfBirth   DateTime?
-  gender        Gender?
-  address       String?
-  phoneNumber   String?
+  id               String    @id @default(uuid())
+  employeeId       String
+  userId           String    @unique
+  departmentId     String?
+  managerId        String?
+  position         String
+  joinDate         DateTime
+  terminationDate  DateTime?
+  dateOfBirth      DateTime?
+  gender           Gender?
+  address          String?
+  phoneNumber      String?
   emergencyContact String?
-  bankAccount   String?
-  salary        Float
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  tenantId      String
+  bankAccount      String?
+  salary           Decimal   @db.Decimal(19, 4)
+  currency         String?   @db.Char(3) // ISO 4217; falls back to tenant.baseCurrency when null
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  tenantId         String
 
-  // Relationships
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department    Department? @relation(fields: [departmentId], references: [id])
-  manager       Employee? @relation("EmployeeToManager", fields: [managerId], references: [id])
-  subordinates  Employee[] @relation("EmployeeToManager")
-  attendances   Attendance[]
-  leaves        Leave[]
-  payslips      Payslip[]
-  documents     Document[]
-  reviews       PerformanceReview[] @relation("ReviewedEmployee")
-  reviewsGiven  PerformanceReview[] @relation("Reviewer")
-  goals         Goal[]
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department   Department?         @relation(fields: [departmentId], references: [id])
+  manager      Employee?           @relation("EmployeeToManager", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates Employee[]          @relation("EmployeeToManager")
+  attendances  Attendance[]
+  leaves       Leave[]
+  payslips     Payslip[]
+  documents    Document[]
+  reviews      PerformanceReview[] @relation("ReviewedEmployee")
+  reviewsGiven PerformanceReview[] @relation("Reviewer")
+  goals        Goal[]
 
+  @@unique([tenantId, employeeId])
+  @@index([tenantId])
+  @@index([managerId])
+  @@index([departmentId])
   @@map("employees")
 }
 
@@ -116,31 +181,32 @@ model Department {
   updatedAt   DateTime @updatedAt
   tenantId    String
 
-  // Relationships
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  employees   Employee[]
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees Employee[]
 
   @@unique([name, tenantId])
+  @@index([tenantId])
   @@map("departments")
 }
 
 // Attendance record
 model Attendance {
-  id          String   @id @default(uuid())
-  employeeId  String
-  clockIn     DateTime
-  clockOut    DateTime?
-  date        DateTime @db.Date
-  status      AttendanceStatus @default(PRESENT)
-  note        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  tenantId    String
+  id         String           @id @default(uuid())
+  employeeId String
+  clockIn    DateTime
+  clockOut   DateTime?
+  date       DateTime         @db.Date
+  status     AttendanceStatus @default(PRESENT)
+  note       String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  tenantId   String
 
-  // Relationships
-  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([employeeId, date])
+  @@index([tenantId, date])
   @@map("attendances")
 }
 
@@ -155,23 +221,25 @@ enum AttendanceStatus {
 
 // Leave request
 model Leave {
-  id           String   @id @default(uuid())
-  employeeId   String
-  startDate    DateTime @db.Date
-  endDate      DateTime @db.Date
-  leaveType    LeaveType
-  reason       String
-  status       LeaveStatus @default(PENDING)
-  approvedById String?
+  id              String      @id @default(uuid())
+  employeeId      String
+  startDate       DateTime    @db.Date
+  endDate         DateTime    @db.Date
+  leaveType       LeaveType
+  reason          String
+  status          LeaveStatus @default(PENDING)
+  approvedById    String?
   rejectionReason String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  tenantId     String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  tenantId        String
 
-  // Relationships
-  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  approvedBy User?    @relation("LeaveApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
 
+  @@index([tenantId, status])
+  @@index([employeeId])
   @@map("leaves")
 }
 
@@ -191,27 +259,30 @@ enum LeaveStatus {
   CANCELLED
 }
 
-// Payroll record
+// Payroll record. Money is Decimal with an explicit ISO 4217 currency.
+// Employee deletion is blocked while payslips exist (financial records are retained).
 model Payslip {
-  id           String   @id @default(uuid())
-  employeeId   String
-  payPeriodStart DateTime @db.Date
-  payPeriodEnd   DateTime @db.Date
-  baseSalary     Float
-  bonus          Float   @default(0)
-  deductions     Float   @default(0)
-  tax            Float   @default(0)
-  netSalary      Float
+  id             String        @id @default(uuid())
+  employeeId     String
+  payPeriodStart DateTime      @db.Date
+  payPeriodEnd   DateTime      @db.Date
+  currency       String        @db.Char(3)
+  baseSalary     Decimal       @db.Decimal(19, 4)
+  bonus          Decimal       @default(0) @db.Decimal(19, 4)
+  deductions     Decimal       @default(0) @db.Decimal(19, 4)
+  tax            Decimal       @default(0) @db.Decimal(19, 4)
+  netSalary      Decimal       @db.Decimal(19, 4)
   status         PayslipStatus @default(DRAFT)
   documentUrl    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   tenantId       String
 
-  // Relationships
-  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([employeeId, payPeriodStart, payPeriodEnd])
+  @@index([tenantId, status])
   @@map("payslips")
 }
 
@@ -221,23 +292,24 @@ enum PayslipStatus {
   PAID
 }
 
-// Document storage
+// Document storage. Employee deletion is blocked while documents exist.
 model Document {
-  id           String   @id @default(uuid())
-  employeeId   String
-  name         String
-  type         DocumentType
-  fileUrl      String
-  fileSize     Int
-  mimeType     String
-  uploadedAt   DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  tenantId     String
+  id         String       @id @default(uuid())
+  employeeId String
+  name       String
+  type       DocumentType
+  fileUrl    String
+  fileSize   Int
+  mimeType   String
+  uploadedAt DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  tenantId   String
 
-  // Relationships
-  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
+  @@index([employeeId])
   @@map("documents")
 }
 
@@ -253,23 +325,24 @@ enum DocumentType {
 
 // Notifications
 model Notification {
-  id           String   @id @default(uuid())
-  title        String
-  message      String
-  recipientId  String
-  senderId     String
-  isRead       Boolean  @default(false)
-  type         NotificationType
-  linkUrl      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  tenantId     String
+  id          String           @id @default(uuid())
+  title       String
+  message     String
+  recipientId String
+  senderId    String
+  isRead      Boolean          @default(false)
+  type        NotificationType
+  linkUrl     String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  tenantId    String
 
-  // Relationships
-  recipient    User     @relation("ReceivedBy", fields: [recipientId], references: [id], onDelete: Cascade)
-  sender       User     @relation("SentBy", fields: [senderId], references: [id], onDelete: Cascade)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipient User   @relation("ReceivedBy", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender    User   @relation("SentBy", fields: [senderId], references: [id], onDelete: Cascade)
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([recipientId, isRead])
+  @@index([tenantId])
   @@map("notifications")
 }
 
@@ -286,22 +359,25 @@ enum NotificationType {
 
 // Performance Review
 model PerformanceReview {
-  id              String   @id @default(uuid())
-  employeeId      String
-  reviewerId      String
-  reviewDate      DateTime
+  id               String       @id @default(uuid())
+  employeeId       String
+  reviewerId       String
+  reviewDate       DateTime
   performanceScore Float
-  strengths       String?
-  areasToImprove  String?
-  comments        String?
-  status          ReviewStatus @default(DRAFT)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  strengths        String?
+  areasToImprove   String?
+  comments         String?
+  status           ReviewStatus @default(DRAFT)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  tenantId         String
 
-  // Relationships
-  employee        Employee @relation("ReviewedEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  reviewer        Employee @relation("Reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation("ReviewedEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewer Employee @relation("Reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
+  @@index([employeeId])
   @@map("performance_reviews")
 }
 
@@ -314,18 +390,21 @@ enum ReviewStatus {
 
 // Goals
 model Goal {
-  id              String   @id @default(uuid())
-  employeeId      String
-  title           String
-  description     String
-  targetDate      DateTime
-  status          GoalStatus @default(IN_PROGRESS)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String     @id @default(uuid())
+  employeeId  String
+  title       String
+  description String
+  targetDate  DateTime
+  status      GoalStatus @default(IN_PROGRESS)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  tenantId    String
 
-  // Relationships
-  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
+  @@index([employeeId])
   @@map("goals")
 }
 

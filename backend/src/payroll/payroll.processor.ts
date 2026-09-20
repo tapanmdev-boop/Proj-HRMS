@@ -1,6 +1,7 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bull';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
 // @ts-ignore
@@ -32,20 +33,43 @@ export class PayrollProcessor {
         },
       });
 
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { baseCurrency: true, defaultLocale: true },
+      });
+      if (!tenant) {
+        throw new Error(`Tenant ${tenantId} not found`);
+      }
+
+      // Statutory tax is jurisdiction-specific and is not hardcoded here. Until the payroll
+      // calculation engine exists, the caller must supply an explicit flat rate (default 0).
+      const taxRate = new Prisma.Decimal(job.data.taxRate ?? 0);
+      const periodStart = new Date(payPeriodStart);
+      const periodEnd = new Date(payPeriodEnd);
+
       // Generate a payslip for each employee
       for (const employee of employees) {
-        // Calculate payslip values
+        // Idempotent: a payslip for this employee and period is generated at most once.
+        const existing = await this.prisma.payslip.findFirst({
+          where: { employeeId: employee.id, payPeriodStart: periodStart, payPeriodEnd: periodEnd },
+          select: { id: true },
+        });
+        if (existing) {
+          continue;
+        }
+
         const baseSalary = employee.salary;
-        const tax = baseSalary * 0.2; // Example tax calculation
-        const netSalary = baseSalary - tax;
+        const tax = baseSalary.mul(taxRate).toDecimalPlaces(4);
+        const netSalary = baseSalary.sub(tax);
 
         // Create payslip record
         const payslip = await this.prisma.payslip.create({
           data: {
             employeeId: employee.id,
             tenantId,
-            payPeriodStart: new Date(payPeriodStart),
-            payPeriodEnd: new Date(payPeriodEnd),
+            payPeriodStart: periodStart,
+            payPeriodEnd: periodEnd,
+            currency: employee.currency ?? tenant.baseCurrency,
             baseSalary,
             tax,
             netSalary,
@@ -54,7 +78,7 @@ export class PayrollProcessor {
         });
 
         // Generate PDF payslip
-        const pdfBuffer = await this.generatePayslipPDF(employee, payslip);
+        const pdfBuffer = await this.generatePayslipPDF(employee, payslip, tenant.defaultLocale);
         
         // Upload to storage
         const fileName = `payslip_${employee.employeeId}_${payPeriodStart.replace(/-/g, '')}_${payPeriodEnd.replace(/-/g, '')}.pdf`;
@@ -90,7 +114,11 @@ export class PayrollProcessor {
     }
   }
 
-  private async generatePayslipPDF(employee, payslip): Promise<Buffer> {
+  private async generatePayslipPDF(employee, payslip, locale: string): Promise<Buffer> {
+    const money = (value: Prisma.Decimal) =>
+      new Intl.NumberFormat(locale, { style: 'currency', currency: payslip.currency }).format(value.toNumber());
+    const date = (value: Date) => value.toLocaleDateString(locale, { timeZone: 'UTC' });
+
     return new Promise((resolve) => {
       const chunks = [];
       const doc = new PDFDocument();
@@ -114,17 +142,17 @@ export class PayrollProcessor {
         .fontSize(12)
         .text(`Employee: ${employee.user.firstName} ${employee.user.lastName}`)
         .text(`Employee ID: ${employee.employeeId}`)
-        .text(`Period: ${payslip.payPeriodStart.toLocaleDateString()} to ${payslip.payPeriodEnd.toLocaleDateString()}`)
+        .text(`Period: ${date(payslip.payPeriodStart)} to ${date(payslip.payPeriodEnd)}`)
         .moveDown()
         .text('Earnings', { underline: true })
         .moveDown()
-        .text(`Base Salary: $${payslip.baseSalary.toFixed(2)}`)
+        .text(`Base Salary: ${money(payslip.baseSalary)}`)
         .moveDown()
         .text('Deductions', { underline: true })
         .moveDown()
-        .text(`Tax: $${payslip.tax.toFixed(2)}`)
+        .text(`Tax: ${money(payslip.tax)}`)
         .moveDown()
-        .text(`Net Salary: $${payslip.netSalary.toFixed(2)}`)
+        .text(`Net Salary: ${money(payslip.netSalary)}`)
         .moveDown(2)
         .text('This is an automatically generated payslip. No signature required.');
 

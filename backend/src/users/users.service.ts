@@ -2,6 +2,8 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { RequestContext } from '../common/decorators/request-context.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ListUsersDto } from './dto/list-users.dto';
@@ -26,9 +28,12 @@ export const SAFE_USER_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  async create(dto: CreateUserDto, actor: AuthUser) {
+  async create(dto: CreateUserDto, actor: AuthUser, ctx: RequestContext = {}) {
     const role = dto.role ?? Role.EMPLOYEE;
     this.assertCanAssignRole(actor, role);
 
@@ -37,7 +42,7 @@ export class UsersService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    return this.prisma.user.create({
+    const created = await this.prisma.user.create({
       data: {
         email,
         password: await this.hashPassword(dto.password),
@@ -48,6 +53,8 @@ export class UsersService {
       },
       select: SAFE_USER_SELECT,
     });
+    await this.audit.record({ action: 'user.create', tenantId: actor.tenantId, actorId: actor.id, entityType: 'user', entityId: created.id, metadata: { email, role }, ...ctx });
+    return created;
   }
 
   async findAll(tenantId: string, query: ListUsersDto) {
@@ -86,7 +93,7 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, dto: UpdateUserDto, actor: AuthUser) {
+  async update(id: string, dto: UpdateUserDto, actor: AuthUser, ctx: RequestContext = {}) {
     const target = await this.findOne(id, actor.tenantId);
     const isSelf = target.id === actor.id;
 
@@ -111,15 +118,35 @@ export class UsersService {
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
     if (dto.password) data.password = await this.hashPassword(dto.password);
 
-    return this.prisma.user.update({ where: { id: target.id }, data, select: SAFE_USER_SELECT });
+    const updated = await this.prisma.user.update({ where: { id: target.id }, data, select: SAFE_USER_SELECT });
+    await this.audit.record({
+      action: 'user.update',
+      tenantId: actor.tenantId,
+      actorId: actor.id,
+      entityType: 'user',
+      entityId: target.id,
+      // Field names only for the password; never its value.
+      metadata: { fields: Object.keys(data), roleFrom: target.role, roleTo: updated.role, activeFrom: target.isActive, activeTo: updated.isActive },
+      ...ctx,
+    });
+    return updated;
   }
 
-  async remove(id: string, actor: AuthUser) {
+  async remove(id: string, actor: AuthUser, ctx: RequestContext = {}) {
     const target = await this.findOne(id, actor.tenantId);
     if (target.id === actor.id) {
       throw new ForbiddenException('You cannot delete your own account');
     }
-    await this.prisma.user.delete({ where: { id: target.id } });
+    try {
+      await this.prisma.user.delete({ where: { id: target.id } });
+    } catch (error) {
+      // P2003: payslips or documents still reference this person's employee record.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException('This user has payroll or document records that must be retained. Deactivate the account instead.');
+      }
+      throw error;
+    }
+    await this.audit.record({ action: 'user.delete', tenantId: actor.tenantId, actorId: actor.id, entityType: 'user', entityId: target.id, metadata: { email: target.email }, ...ctx });
     return { id: target.id, deleted: true };
   }
 

@@ -14,6 +14,8 @@ import { PayrollModule } from './payroll/payroll.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AdminModule } from './admin/admin.module';
+import { AuditModule } from './audit/audit.module';
+import { TenantsModule } from './tenants/tenants.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import configuration from './config/configuration';
@@ -47,8 +49,10 @@ import { validationSchema } from './config/validation';
 
     ScheduleModule.forRoot(),
     PrismaModule,
+    AuditModule,
 
     AuthModule,
+    TenantsModule,
     UsersModule,
     EmployeesModule,
     AttendanceModule,
