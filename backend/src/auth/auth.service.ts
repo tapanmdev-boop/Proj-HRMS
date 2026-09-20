@@ -97,6 +97,7 @@ export class AuthService {
           defaultLocale: dto.defaultLocale,
           defaultTimezone: dto.defaultTimezone,
           baseCurrency: dto.baseCurrency,
+          weekendDays: dto.weekendDays ? [...dto.weekendDays].sort((a, b) => a - b) : undefined,
         },
       });
       return tx.user.create({

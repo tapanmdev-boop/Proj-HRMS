@@ -14,6 +14,7 @@ const TENANT_SELECT = {
   defaultTimezone: true,
   baseCurrency: true,
   weekStartsOn: true,
+  weekendDays: true,
   fiscalYearStartMonth: true,
   createdAt: true,
   updatedAt: true,
@@ -45,12 +46,14 @@ export class TenantsService {
         defaultTimezone: dto.defaultTimezone,
         baseCurrency: dto.baseCurrency,
         weekStartsOn: dto.weekStartsOn,
+        weekendDays: dto.weekendDays ? [...dto.weekendDays].sort((a, b) => a - b) : undefined,
         fiscalYearStartMonth: dto.fiscalYearStartMonth,
       },
       select: TENANT_SELECT,
     });
 
-    const changed = Object.keys(dto).filter((key) => before[key as keyof typeof before] !== after[key as keyof typeof after]);
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    const changed = Object.keys(dto).filter((key) => !same(before[key as keyof typeof before], after[key as keyof typeof after]));
     await this.audit.record({
       action: 'tenant.update',
       tenantId: actor.tenantId,

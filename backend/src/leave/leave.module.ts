@@ -1,16 +1,12 @@
 import { Module } from '@nestjs/common';
 import { LeaveService } from './leave.service';
 import { LeaveController } from './leave.controller';
-import { PrismaModule } from '../prisma/prisma.module';
-import { NotificationsModule } from '../notifications/notifications.module';
+import { HolidaysController } from './holidays.controller';
+import { HolidaysService } from './holidays.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-    NotificationsModule,
-  ],
-  controllers: [LeaveController],
-  providers: [LeaveService],
+  controllers: [LeaveController, HolidaysController],
+  providers: [LeaveService, HolidaysService],
   exports: [LeaveService],
 })
 export class LeaveModule {}

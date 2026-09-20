@@ -1,4 +1,4 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsCountryCode, IsCurrencyCode, IsIanaTimezone, IsLocaleTag } from '../../common/validators/locale.validators';
 
@@ -36,6 +36,15 @@ export class UpdateTenantDto {
   @Max(6)
   @IsOptional()
   weekStartsOn?: number;
+
+  @ApiProperty({ required: false, example: [6, 0], description: 'Non-working weekdays, 0 = Sunday ... 6 = Saturday. At most 6 (at least one working day)' })
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  @ArrayUnique()
+  @ArrayMaxSize(6)
+  @IsOptional()
+  weekendDays?: number[];
 
   @ApiProperty({ required: false, minimum: 1, maximum: 12 })
   @IsInt()

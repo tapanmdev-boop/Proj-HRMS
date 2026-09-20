@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsCountryCode, IsCurrencyCode, IsIanaTimezone, IsLocaleTag } from '../../common/validators/locale.validators';
 
@@ -59,4 +59,14 @@ export class SignupDto {
   @IsCurrencyCode()
   @IsOptional()
   baseCurrency?: string;
+
+  @ApiProperty({ required: false, example: [6, 0], description: 'Non-working weekdays, 0 = Sunday ... 6 = Saturday. At most 6 (at least one working day)' })
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  @ArrayUnique()
+  @ArrayMaxSize(6)
+  @IsOptional()
+  weekendDays?: number[];
+
 }

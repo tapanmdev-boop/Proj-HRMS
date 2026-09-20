@@ -22,6 +22,7 @@ model Tenant {
   defaultTimezone      String   @default("UTC") // IANA timezone, e.g. "Asia/Kolkata"
   baseCurrency         String   @default("USD") @db.Char(3) // ISO 4217
   weekStartsOn         Int      @default(1) // 0 = Sunday ... 6 = Saturday
+  weekendDays          Int[]    @default([6, 0]) // non-working weekdays, 0 = Sunday ... 6 = Saturday (e.g. [5, 6] Fri/Sat, [0] Sunday only)
   fiscalYearStartMonth Int      @default(1) // 1-12
   settings             Json?
   createdAt            DateTime @default(now())
@@ -38,6 +39,8 @@ model Tenant {
   performanceReviews PerformanceReview[]
   goals              Goal[]
   auditLogs          AuditLog[]
+  holidays           Holiday[]
+  leavePolicies      LeavePolicy[]
 
   @@map("tenants")
 }
@@ -232,6 +235,8 @@ model Leave {
   status          LeaveStatus @default(PENDING)
   approvedById    String?
   rejectionReason String?
+  days            Decimal     @default(0) @db.Decimal(6, 2) // working days, computed server-side
+  decidedAt       DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   tenantId        String
@@ -415,4 +420,32 @@ enum GoalStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+}
+
+// Public/company holidays per organization (they differ by country and by company).
+model Holiday {
+  id        String   @id @default(uuid())
+  tenantId  String
+  date      DateTime @db.Date
+  name      String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@map("holidays")
+}
+
+// Annual entitlement per leave type. A type without a policy is not balance-limited.
+model LeavePolicy {
+  id          String    @id @default(uuid())
+  tenantId    String
+  leaveType   LeaveType
+  daysPerYear Decimal   @db.Decimal(6, 2)
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, leaveType])
+  @@map("leave_policies")
 }
