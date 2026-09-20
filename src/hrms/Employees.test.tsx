@@ -48,6 +48,12 @@ function mockApi(state: ApiState) {
   return requests;
 }
 
+/** Fills a field by pasting; typing ~100 characters key-by-key made these tests slow enough to time out under load. */
+const fill = async (user: ReturnType<typeof userEvent.setup>, field: HTMLElement, text: string) => {
+  await user.click(field);
+  await user.paste(text);
+};
+
 describe('Employees page', () => {
   beforeEach(() => {
     session.set({ accessToken: 'token', refreshToken: 'refresh' });
@@ -141,13 +147,13 @@ describe('Employees page', () => {
 
   describe('adding an employee', () => {
     const fillRequired = async (user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) => {
-      await user.type(within(dialog).getByLabelText('First name'), 'Grace');
-      await user.type(within(dialog).getByLabelText('Last name'), 'Hopper');
-      await user.type(within(dialog).getByLabelText('Work email'), 'grace@acme.test');
-      await user.type(within(dialog).getByLabelText('Initial password'), 'long-enough-1');
-      await user.type(within(dialog).getByLabelText('Position'), 'Rear Admiral');
-      await user.type(within(dialog).getByLabelText('Join date'), '2026-04-01');
-      await user.type(within(dialog).getByLabelText('Base pay (per pay period)'), '7500.25');
+      await fill(user, within(dialog).getByLabelText('First name'), 'Grace');
+      await fill(user, within(dialog).getByLabelText('Last name'), 'Hopper');
+      await fill(user, within(dialog).getByLabelText('Work email'), 'grace@acme.test');
+      await fill(user, within(dialog).getByLabelText('Initial password'), 'long-enough-1');
+      await fill(user, within(dialog).getByLabelText('Position'), 'Rear Admiral');
+      await fill(user, within(dialog).getByLabelText('Join date'), '2026-04-01');
+      await fill(user, within(dialog).getByLabelText('Base pay (per pay period)'), '7500.25');
     };
 
     it('validates before calling the API', async () => {
@@ -175,8 +181,8 @@ describe('Employees page', () => {
       expect(within(dialog).queryByLabelText('Social Security number')).not.toBeInTheDocument();
 
       await fillRequired(user, dialog);
-      await user.type(within(dialog).getByLabelText('Emirates ID'), '784-1990-1234567-1');
-      await user.type(within(dialog).getByLabelText('Housing allowance'), '2000');
+      await fill(user, within(dialog).getByLabelText('Emirates ID'), '784-1990-1234567-1');
+      await fill(user, within(dialog).getByLabelText('Housing allowance'), '2000');
       await user.click(within(dialog).getByRole('button', { name: 'Add employee' }));
 
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

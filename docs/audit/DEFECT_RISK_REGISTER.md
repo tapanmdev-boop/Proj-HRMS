@@ -64,3 +64,44 @@ All items pre-existing (nothing has been changed by this audit). "Evidence" = co
 | R01 | Duplicate `All-in-One HRMS Platform-Source-Code/` folder staged for commit | Owner to unstage/remove |
 | R02 | Local infra collisions (ports 3000/5432, compose project name `backend`) | Explicit `-p hrms` project name, distinct ports, `.env.example` |
 | R03 | Scope: 10 product phases on a skeleton backend | Sequence in `docs/plans/GAP_ANALYSIS_AND_ROADMAP.md` |
+
+---
+
+## Resolution status (updated after Stage B2)
+
+The tables above are the original findings (evidence as of Phase 0). Outcome per item:
+
+| ID | Outcome | Where / how verified |
+|---|---|---|
+| S01 login skips password | **Fixed** | `security.e2e-spec.ts` (wrong password, unknown user/org: same 401) |
+| S02 public register accepts role | **Fixed** (endpoint removed; throttled org sign-up; role rejected as unknown field) | e2e "rejects a client-supplied role", "rejects the removed /auth/register" |
+| S03 client-controlled tenant | **Fixed** (tenant from DB-backed principal; header ignored) | e2e "ignores a client-supplied tenant header", "forged tenant claim" |
+| S04 cross-tenant IDOR | **Fixed** for users, employees, departments, tenant settings | e2e tenant-isolation suites |
+| S05 HR role escalation | **Fixed** (only ADMIN assigns/manages ADMIN; no self role change) | e2e "privilege escalation" |
+| S06 unguarded stub controllers | **Fixed** (global auth; payroll/admin restricted to ADMIN/HR). Stubs still return placeholder data | e2e "authentication is required everywhere" |
+| S07 `simple-server.js` | **Fixed** (removed) | git history |
+| S08 token trusts role/isActive | **Fixed** (re-read per request; refresh tokens with rotation and revocation) | e2e "token lifetime is bound to the database", refresh suites |
+| S09 OAuth unverified email / auto-create | **Fixed** (existing users only; Google verified email only; Microsoft by provider id). Not exercised end to end: no provider credentials in this environment | code review only: REQUIRES RUNTIME VALIDATION |
+| S10 throttler unenforced | **Fixed** | e2e "returns 429" |
+| S11 CORS/Swagger/query logging | **Fixed** | live CORS check; config |
+| S12 hardcoded credentials | **Fixed** in code (S3 service); compose defaults are development-only and env-overridable | code review |
+| S13 mock auth, no route RBAC, demo creds | **Fixed** (real auth; role rules from nav config; demo panel removed) | `ProtectedRoute.test.tsx`, live contract |
+| S14 plaintext bank/Float salary | **Partly fixed**: Decimal money, field-level privacy. Bank/identity data is **not** encrypted at rest | e2e; see SECURITY_CONTROLS gaps |
+| S15 `.env` not ignored (root) | **Open** (frontend uses `.env.local`, ignored via `*.local`; add `.env` to root `.gitignore`) | |
+| B01–B05 build/runtime | **Fixed** | `nest build`, `npm ci --dry-run`, app boots |
+| B06 `withTenant()` broken | **Fixed** (removed; explicit tenant scoping) | e2e |
+| B07 dependency hygiene | **Partly fixed** (express 5, unused deps removed). aws-sdk v2, multer 1.x, TS 4.9 remain | install warnings |
+| B08 config validation | **Fixed** (Joi, fail-fast) | boot |
+| B09 Docker/compose | **Partly fixed** (project name, ports, healthchecks for Postgres). Dockerfile still runs as root | |
+| B10 no envelope/filter/audit | **Partly fixed** (audit log added; no response envelope/exception filter) | |
+| B11 dead payroll processor / flat tax | **Partly fixed** (no hardcoded tax, Decimal, idempotent) but still not wired to an API | |
+| D01–D06 schema | **Fixed** (per-tenant uniques, tenantId on reviews/goals, indexes, Decimal, migrations tracked, audit table). History tables (employment/compensation) not yet built | migrations, e2e |
+| F01 frontend 100% mock | **Partly fixed**: Auth, Employees, tenant settings, departments are real. All other modules remain mock | `IMPLEMENTATION_STATUS.md` |
+| F02 session restore bug | **Fixed** | `authSlice` restore flow; live contract |
+| F03 unused API client | **Fixed** (new typed client) | `http.test.ts` |
+| F04 lint | **Partly fixed**: 86 → 14 errors | `npm run lint` |
+| F05 no manager demo user | **Obsolete** (no demo users) | |
+| F06/F07 duplicates & dead code | **Partly fixed** (dead files removed, PostCSS duplicate and backend deps in frontend `package.json` remain) | |
+| F08 no tests | **Fixed** for the migrated modules (87 tests + live contract). No tests for unmigrated pages | |
+| R01 duplicate folder | **Fixed** (removed, commit `afc7ba2`) | |
+| R02 local infra collisions | **Partly fixed** (compose project `hrms`, non-default ports). Incident: an earlier compose run replaced another project's containers; see `BASELINE_STATUS.md` | |

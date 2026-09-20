@@ -30,3 +30,18 @@ Date: 2026-09-20. Host: Windows 10, Node 22.19.0, npm 11.6.1, Docker 29.7.2, `ps
 1. `nest build` (row 7) emitted `.js` over 55 tracked backend files; reverted with `git checkout -- backend`. `git status` outside the staged nested copy is clean.
 2. `docker compose up -d postgres redis` from `backend/` shared a compose project name (`backend`) with another local project and **replaced its containers `aerovantis-postgres` and `aerovantis-redis`**. Their data volumes (`backend_postgres-data`, `backend_redis-data`) were verified intact; the two volumes I created (`backend_postgres_data`, `backend_redis_data`) were removed. The other project can be restored by running its own compose file again. Compose from `backend/` must not be run again until the project name is set explicitly.
 3. Left on the machine: container `hrms-baseline-pg` (port 55432), `backend/.env` (ignored), `backend/node_modules` (ignored).
+
+---
+
+## Addendum: results after Stage A and B (2026-09-20)
+
+| Check | Result |
+|---|---|
+| Backend `npm ci --dry-run`, `tsc`, `nest build`, boot | pass |
+| Backend e2e | 107 passed |
+| Frontend `tsc -b`, `vite build` | pass |
+| Frontend lint | 14 errors, 1 warning (from 86 / 4) |
+| Frontend tests | 87 passed (+5 live contract, run with `LIVE_API=true`) |
+| Live contract against running API | 5 passed |
+| Runtime probes that were "NOT RUN" in the baseline | Now covered by e2e (login, register, tenant isolation, unauthenticated access) |
+| Browser walk-through of the running UI | **Still not done** (no browser automation available in this environment); UI behaviour is covered by component tests, not by a real browser |
