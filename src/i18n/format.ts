@@ -16,6 +16,10 @@ export interface Formatters {
   /** Calendar date such as "15 Jan 2026"; date-only strings (YYYY-MM-DD) never shift across timezones. */
   date: (value: string | Date | null | undefined) => string;
   dateTime: (value: string | Date | null | undefined) => string;
+  /** Time of day in the organization timezone, e.g. "09:30" or "9:30 AM" depending on the locale. */
+  time: (value: string | Date | null | undefined) => string;
+  /** Minutes as a compact duration, e.g. 450 -> "7h 30m". */
+  duration: (minutes: number | null | undefined) => string;
   /** Number of fraction digits the currency uses (JPY 0, USD 2, KWD 3). */
   currencyDigits: (currency?: string | null) => number;
 }
@@ -57,6 +61,18 @@ export function createFormatters(settings: { locale?: string; timezone?: string;
       // Date-only values are calendar days: format in UTC so they never shift by the viewer's offset.
       const zone = typeof value === 'string' && isDateOnly(value) ? 'UTC' : timezone;
       return new Intl.DateTimeFormat(safeLocale, { dateStyle: 'medium', timeZone: zone }).format(d);
+    },
+    time: (value) => {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '—';
+      return new Intl.DateTimeFormat(safeLocale, { timeStyle: 'short', timeZone: timezone }).format(d);
+    },
+    duration: (minutes) => {
+      if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return '—';
+      const h = Math.floor(minutes / 60);
+      const m = Math.round(minutes % 60);
+      return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
     },
     dateTime: (value) => {
       if (!value) return '—';

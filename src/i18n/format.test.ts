@@ -58,6 +58,23 @@ describe('createFormatters', () => {
     expect(createFormatters({ locale: 'ja-JP' }).date('2026-03-05')).toBe('2026/03/05');
   });
 
+  it('formats time of day in the organization timezone', () => {
+    const instant = '2026-06-01T23:30:00Z';
+    expect(createFormatters({ locale: 'en-GB', timezone: 'UTC' }).time(instant)).toBe('23:30');
+    expect(createFormatters({ locale: 'en-GB', timezone: 'Asia/Kolkata' }).time(instant)).toBe('05:00');
+    expect(createFormatters({ locale: 'en-GB', timezone: 'Asia/Kathmandu' }).time(instant)).toBe('05:15');
+    expect(createFormatters().time(null)).toBe('—');
+  });
+
+  it('formats durations', () => {
+    const f = createFormatters();
+    expect(f.duration(450)).toBe('7h 30m');
+    expect(f.duration(45)).toBe('45m');
+    expect(f.duration(60)).toBe('1h 00m');
+    expect(f.duration(0)).toBe('0m');
+    expect(f.duration(null)).toBe('—');
+  });
+
   it('falls back safely for an invalid locale, and for invalid dates', () => {
     const f = createFormatters({ locale: 'not a locale' });
     expect(f.locale).toBe('en');

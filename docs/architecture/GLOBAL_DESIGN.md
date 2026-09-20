@@ -35,7 +35,10 @@ Current packs: AE (identifiers, gratuity, WPS export), IN, GB, US, DE, SA (ident
 ## 5. Work calendar (weekends and holidays)
 Weekends are configuration (`tenants.weekendDays`, any subset of the week except all seven days) and holidays are per-organization dates, so the same code serves Saturday/Sunday, Friday/Saturday, Sunday-only and six-day weeks. Working-day counting is pure calendar arithmetic on ISO dates (no timezone or DST dependence), implemented identically on the server (`backend/src/leave/working-days.ts`) and client (`src/i18n/workdays.ts`), and verified against each other in the live contract test.
 
-## 6. What "global" does not yet cover
+## 6. Timezones and the attendance day
+An attendance day is the organization-local calendar day of the clock-in instant (`backend/src/attendance/timezone.ts`). Offsets and daylight-saving rules come from the runtime's IANA data (no hand-coded rules), so half-hour and 45-minute zones, UTC+14/UTC−11 and southern-hemisphere DST are handled. Corrections take local wall-clock times and convert them to exact instants; a time that does not exist (spring-forward gap) resolves to the nearest valid instant and one that occurs twice (fall-back) to the first. Tested for the New York, London, Sydney, Lord Howe, Kolkata, Kathmandu, Kiritimati and Pago Pago cases.
+
+## 7. What "global" does not yet cover
 - Translations of the UI text (formats are localized; labels are English).
 - Right-to-left layout review for Arabic/Hebrew locales.
 - Country-specific statutory leave entitlements, public-holiday data, and working-time/overtime rules (leave entitlements are configured per organization; nothing is pre-loaded for any country).

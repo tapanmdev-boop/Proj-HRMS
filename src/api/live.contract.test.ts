@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { session } from './http';
 import { authApi, departmentsApi, employeesApi, tenantApi } from './endpoints';
 import { holidaysApi, leaveApi } from './leave';
+import { attendanceApi } from './attendance';
 import { countWorkingDays } from '../i18n/workdays';
 import { toUser } from '../auth/authSlice';
 import { createFormatters } from '../i18n/format';
@@ -106,6 +107,40 @@ describe.skipIf(!live)('frontend ↔ backend contract', () => {
     const approved = await leaveApi.approve(created.id);
     expect(approved.status).toBe('APPROVED');
     await expect(leaveApi.approve(created.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('runs attendance end to end: clock, correct, approve, summarize', async () => {
+    session.set(await authApi.login({ tenant: slug, email: `admin@${slug}.test`, password: 'Str0ng-Passw0rd!' }));
+    await tenantApi.update({ defaultTimezone: 'Asia/Kolkata' });
+    const manager = await employeesApi.create({ email: `amgr@${slug}.test`, password: 'Str0ng-Passw0rd!', firstName: 'Mo', lastName: 'Manager', role: 'MANAGER', position: 'Lead', joinDate: '2020-01-01', salary: '1' });
+    const worker = await employeesApi.create({ email: `awrk@${slug}.test`, password: 'Str0ng-Passw0rd!', firstName: 'Wes', lastName: 'Worker', position: 'Dev', joinDate: '2020-01-01', salary: '1', managerId: manager.id });
+
+    session.set(await authApi.login({ tenant: slug, email: worker.email, password: 'Str0ng-Passw0rd!' }));
+    const idle = await attendanceApi.today();
+    expect(idle).toMatchObject({ clockedIn: false, timezone: 'Asia/Kolkata', record: null });
+    const clockedIn = await attendanceApi.clockIn('contract test');
+    expect(clockedIn).toMatchObject({ open: true, date: idle.date });
+    await expect(attendanceApi.clockIn()).rejects.toMatchObject({ status: 409 });
+    const out = await attendanceApi.clockOut();
+    expect(out.open).toBe(false);
+    expect((await attendanceApi.today()).clockedIn).toBe(false);
+
+    // Correction for a past day: the server converts local (Asia/Kolkata) times to exact instants.
+    const day = new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
+    const correction = await attendanceApi.createCorrection({ date: day, clockInTime: '09:00', clockOutTime: '17:30', reason: 'Contract test' });
+    expect(correction.status).toBe('PENDING');
+    expect(new Date(correction.clockOut).getTime() - new Date(correction.clockIn).getTime()).toBe(8.5 * 3600_000);
+
+    await expect(attendanceApi.approve(correction.id)).rejects.toMatchObject({ status: 403 });
+    session.set(await authApi.login({ tenant: slug, email: manager.email, password: 'Str0ng-Passw0rd!' }));
+    const pending = await attendanceApi.corrections({ scope: 'team', status: 'PENDING' });
+    expect(pending.items.map((c) => c.id)).toContain(correction.id);
+    expect((await attendanceApi.approve(correction.id)).status).toBe('APPROVED');
+
+    const team = await attendanceApi.list({ scope: 'team', from: day, to: day });
+    expect(team.items[0]).toMatchObject({ date: day, workedMinutes: 510, source: 'CORRECTION' });
+    const summary = await attendanceApi.summary(day, day, worker.id);
+    expect(summary.totalMinutes).toBe(510);
   });
 
   it('rotates the session with the stored refresh token and rejects a bad one', async () => {
