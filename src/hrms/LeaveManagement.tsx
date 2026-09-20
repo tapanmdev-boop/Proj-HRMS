@@ -1,528 +1,426 @@
-import { useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Input, Select } from '../components/ui/Form';
+import { Modal } from '../components/ui/Modal';
 import { useAppSelector } from '../store/hooks';
-import { selectCurrentUser } from '../auth/authSlice';
-import { Button } from '../components/ui/Form';
-import { ApprovalStepper, type ApprovalStep } from '../components/ui/ApprovalStepper';
+import { selectCurrentUser, selectTenant } from '../auth/authSlice';
+import { ApiError } from '../api/http';
+import {
+  holidaysApi, leaveApi, LEAVE_TYPES,
+  type Holiday, type LeaveBalance, type LeavePolicy, type LeaveRequest, type LeaveStatus, type LeaveType,
+} from '../api/leave';
+import type { Page } from '../api/types';
+import { useFormat } from '../i18n/format';
+import { countWorkingDays } from '../i18n/workdays';
 
-// Helper function to determine status class
-const getStatusClass = (status: string): string => {
-  if (status === 'pending') return 'bg-yellow-100 text-yellow-800';
-  if (status === 'approved') return 'bg-green-100 text-green-800';
-  return 'bg-red-100 text-red-800';
+const TYPE_LABEL: Record<LeaveType, string> = {
+  ANNUAL: 'Annual leave', SICK: 'Sick leave', MATERNITY: 'Maternity leave', PATERNITY: 'Paternity leave', UNPAID: 'Unpaid leave', OTHER: 'Other',
 };
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const PAGE_SIZE = 10;
 
-const APPROVAL_STEPS: ApprovalStep[] = [
-  { key: 'manager', label: 'Manager' },
-  { key: 'hr', label: 'HR' },
-  { key: 'done', label: 'Approved' },
-];
-const STAGE_INDEX: Record<'manager' | 'hr' | 'done', number> = { manager: 0, hr: 1, done: 2 };
+const errorText = (e: unknown) => (e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
+const today = () => new Date().toISOString().slice(0, 10);
 
-// Mock leave data. `stage` drives the manager → HR approval chain
-// independently of `status`: `status` stays 'pending' while a request moves
-// through stages, and only flips to 'approved'/'denied' once the chain ends.
-const MOCK_LEAVE_REQUESTS = [
-  {
-    id: '1',
-    employeeName: 'John Smith',
-    employeeEmail: 'john.smith@company.com',
-    employeeAvatar: 'JS',
-    leaveType: 'Vacation',
-    startDate: '2025-06-15',
-    endDate: '2025-06-19',
-    days: 5,
-    reason: 'Annual family trip',
-    status: 'pending',
-    stage: 'manager' as const,
-    applied: '2025-05-20'
-  },
-  {
-    id: '2',
-    employeeName: 'Maria Garcia',
-    employeeEmail: 'maria.garcia@company.com',
-    employeeAvatar: 'MG',
-    leaveType: 'Sick Leave',
-    startDate: '2025-06-12',
-    endDate: '2025-06-13',
-    days: 2,
-    reason: 'Not feeling well',
-    status: 'pending',
-    stage: 'hr' as const,
-    applied: '2025-06-11'
-  },
-  {
-    id: '3',
-    employeeName: 'David Johnson',
-    employeeEmail: 'david.johnson@company.com',
-    employeeAvatar: 'DJ',
-    leaveType: 'Personal Leave',
-    startDate: '2025-06-25',
-    endDate: '2025-06-25',
-    days: 1,
-    reason: 'Doctor appointment',
-    status: 'approved',
-    stage: 'done' as const,
-    applied: '2025-06-10'
-  },
-  {
-    id: '4',
-    employeeName: 'Linda Chen',
-    employeeEmail: 'linda.chen@company.com',
-    employeeAvatar: 'LC',
-    leaveType: 'Vacation',
-    startDate: '2025-07-05',
-    endDate: '2025-07-15',
-    days: 11,
-    reason: 'Summer vacation',
-    status: 'approved',
-    stage: 'done' as const,
-    applied: '2025-05-15'
-  },
-  {
-    id: '5',
-    employeeName: 'James Brown',
-    employeeEmail: 'james.brown@company.com',
-    employeeAvatar: 'JB',
-    leaveType: 'Work from Home',
-    startDate: '2025-06-20',
-    endDate: '2025-06-20',
-    days: 1,
-    reason: 'Home repairs',
-    status: 'denied',
-    stage: 'manager' as const,
-    applied: '2025-06-18'
-  }
-];
-
-// Leave balance for current user
-const MOCK_LEAVE_BALANCE = {
-  vacation: { total: 20, used: 5, pending: 0, available: 15 },
-  sick: { total: 10, used: 2, pending: 0, available: 8 },
-  personal: { total: 5, used: 1, pending: 0, available: 4 }
-};
-
-// Map a leave-request "leaveType" label to its MOCK_LEAVE_BALANCE bucket key.
-// "Work from Home" has no entitlement bucket, so it's intentionally omitted.
-const LEAVE_TYPE_TO_BALANCE_KEY: Record<string, keyof typeof MOCK_LEAVE_BALANCE> = {
-  'Vacation': 'vacation',
-  'Sick Leave': 'sick',
-  'Personal Leave': 'personal',
-};
-
-function countDaysInclusive(startDate: string, endDate: string): number {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(1, diff + 1);
+function StatusBadge({ status }: Readonly<{ status: LeaveStatus }>) {
+  const cls: Record<LeaveStatus, string> = {
+    PENDING: 'bg-yellow-100 text-yellow-800', APPROVED: 'bg-green-100 text-green-800', REJECTED: 'bg-red-100 text-red-800', CANCELLED: 'bg-gray-100 text-gray-700',
+  };
+  return <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${cls[status]}`}>{status.charAt(0) + status.slice(1).toLowerCase()}</span>;
 }
 
+/** Trims a decimal string for display: "5.00" → "5". */
+const days = (value: string | null) => (value === null ? '—' : String(Number(value)));
+
+type Tab = 'mine' | 'approvals' | 'settings';
+
 export default function LeaveManagement() {
-  const currentUser = useAppSelector(selectCurrentUser);
-  const isHR = currentUser?.role === 'hr' || currentUser?.role === 'admin';
-  const isManager = currentUser?.role === 'manager';
-  // Managers action the "manager" stage, HR/admin action the "hr" stage —
-  // both need the approvals view, just gated to their own stage's actions.
-  const canReviewApprovals = isHR || isManager;
-  const [searchParams] = useSearchParams();
-  // The Dashboard's "Add Leave Request" button links here with ?action=new to
-  // jump straight to the form (there's no separate /hrms/leaves/new route).
-  const [activeTab, setActiveTab] = useState(
-    searchParams.get('action') === 'new' ? 'apply' : (canReviewApprovals ? 'requests' : 'my-leaves')
-  ); // 'requests', 'my-leaves', 'apply'
-  // The real, mutable dataset — the filter below derives from this instead of
-  // re-reading the MOCK_LEAVE_REQUESTS constant, so approve/deny/submit
-  // actions survive a status-filter change.
-  const [allLeaveRequests, setAllLeaveRequests] = useState(MOCK_LEAVE_REQUESTS);
-  const [leaveBalance, setLeaveBalance] = useState(MOCK_LEAVE_BALANCE);
-  const [filterStatus, setFilterStatus] = useState('');
+  const user = useAppSelector(selectCurrentUser);
+  const tenant = useAppSelector(selectTenant);
+  const fmt = useFormat();
+  const isPeopleOps = user?.role === 'admin' || user?.role === 'hr';
+  const canApprove = isPeopleOps || user?.role === 'manager';
+  // Administrators may have no employee record; they manage leave but do not take it.
+  const [hasEmployeeRecord, setHasEmployeeRecord] = useState(true);
 
-  const [newLeave, setNewLeave] = useState({
-    leaveType: 'Vacation',
-    startDate: '',
-    endDate: '',
-    reason: ''
-  });
-  const [submitConfirmation, setSubmitConfirmation] = useState('');
-
-  const leaveRequests = useMemo(
-    () => filterStatus ? allLeaveRequests.filter(leave => leave.status === filterStatus) : allLeaveRequests,
-    [allLeaveRequests, filterStatus]
-  );
-
-  const myLeaveHistory = useMemo(
-    () => allLeaveRequests.filter(leave => leave.employeeEmail === currentUser?.email),
-    [allLeaveRequests, currentUser]
-  );
-
-  // `actorStage` is which stage of the chain the acting user owns — a
-  // manager can only move a request out of 'manager', HR only out of 'hr'.
-  const handleLeaveAction = (id: string, action: 'approve' | 'deny', actorStage: 'manager' | 'hr') => {
-    setAllLeaveRequests(prev =>
-      prev.map(leave => {
-        if (leave.id !== id || leave.stage !== actorStage) return leave;
-        if (action === 'deny') return { ...leave, status: 'denied' as const };
-        if (actorStage === 'manager') return { ...leave, stage: 'hr' as const };
-        return { ...leave, stage: 'done' as const, status: 'approved' as const };
-      })
-    );
-  };
-
-  const handleNewLeaveChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewLeave(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmitLeave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser) return;
-
-    const days = countDaysInclusive(newLeave.startDate, newLeave.endDate);
-
-    setAllLeaveRequests(prev => [
-      {
-        id: `leave-${Date.now()}`,
-        employeeName: currentUser.name,
-        employeeEmail: currentUser.email,
-        employeeAvatar: currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase(),
-        leaveType: newLeave.leaveType,
-        startDate: newLeave.startDate,
-        endDate: newLeave.endDate,
-        days,
-        reason: newLeave.reason,
-        status: 'pending',
-        stage: 'manager',
-        applied: new Date().toISOString().split('T')[0],
-      },
-      ...prev,
-    ]);
-
-    // Hold the requested days against the balance immediately (pending);
-    // a real backend would reconcile this against the approval outcome.
-    const balanceKey = LEAVE_TYPE_TO_BALANCE_KEY[newLeave.leaveType];
-    if (balanceKey) {
-      setLeaveBalance(prev => ({
-        ...prev,
-        [balanceKey]: {
-          ...prev[balanceKey],
-          used: prev[balanceKey].used + days,
-          available: Math.max(0, prev[balanceKey].available - days),
-        },
-      }));
-    }
-
-    setSubmitConfirmation(`Leave request submitted for ${days} day(s). It now enters manager review, then HR — track it under "My Leaves".`);
-    setNewLeave({
-      leaveType: 'Vacation',
-      startDate: '',
-      endDate: '',
-      reason: ''
-    });
-  };
+  const [tab, setTab] = useState<Tab>('mine');
+  const [reload, setReload] = useState(0);
+  const refresh = useCallback(() => setReload((n) => n + 1), []);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Stable identity: MyLeave re-fetches when this changes.
+  const handleNoRecord = useCallback(() => {
+    setHasEmployeeRecord(false);
+    setTab(canApprove ? 'approvals' : 'mine');
+  }, [canApprove]);
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-sm p-6">
-        <div className="flex flex-col md:flex-row justify-between mb-6">
-          <h2 className="font-display text-[26px] font-medium leading-tight tracking-[-0.02em] text-ink-900 mb-4 md:mb-0">Leave Management</h2>
-          <div className="flex space-x-2">
-            {canReviewApprovals && (
-              <Button variant={activeTab === 'requests' ? 'primary' : 'outline'} onClick={() => setActiveTab('requests')}>
-                Approvals
-              </Button>
-            )}
-            <Button variant={activeTab === 'my-leaves' ? 'primary' : 'outline'} onClick={() => setActiveTab('my-leaves')}>
-              My Leaves
-            </Button>
-            <Button variant={activeTab === 'apply' ? 'primary' : 'outline'} onClick={() => setActiveTab('apply')}>
-              Apply for Leave
-            </Button>
+      <div className="rounded-xl border border-ivory-300 bg-white p-6 shadow-premium-sm">
+        <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+          <h2 className="font-display text-[26px] font-medium leading-tight tracking-[-0.02em] text-ink-900">Leave</h2>
+          <div role="tablist" aria-label="Leave sections" className="flex gap-2">
+            {hasEmployeeRecord && <Button role="tab" aria-selected={tab === 'mine'} variant={tab === 'mine' ? 'primary' : 'outline'} onClick={() => setTab('mine')}>My leave</Button>}
+            {canApprove && <Button role="tab" aria-selected={tab === 'approvals'} variant={tab === 'approvals' ? 'primary' : 'outline'} onClick={() => setTab('approvals')}>{isPeopleOps ? 'All requests' : 'Team requests'}</Button>}
+            {isPeopleOps && <Button role="tab" aria-selected={tab === 'settings'} variant={tab === 'settings' ? 'primary' : 'outline'} onClick={() => setTab('settings')}>Policies & holidays</Button>}
           </div>
         </div>
 
-        {activeTab === 'requests' && canReviewApprovals && (
-          <>
-            {/* Filter bar */}
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-              <div className="w-full md:w-48">
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status Filter</label>
-                <select
-                  id="status"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="denied">Denied</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Leave requests table */}
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Details</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Approval</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {leaveRequests.map((leave) => {
-                    // Only the approver who owns the current stage sees action
-                    // buttons on a pending request — a manager can't skip
-                    // ahead and clear the HR stage, and vice versa.
-                    const canAct =
-                      leave.status === 'pending' &&
-                      ((isManager && leave.stage === 'manager') || (isHR && leave.stage === 'hr'));
-                    return (
-                    <tr key={leave.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-ivory-200 flex items-center justify-center text-ink-700 font-medium mr-3">
-                            {leave.employeeAvatar}
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">{leave.employeeName}</div>
-                            <div className="text-sm text-gray-500">{leave.employeeEmail}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">{leave.leaveType}</div>
-                        <div className="text-sm text-gray-500">
-                          {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
-                        </div>
-                        <div className="text-sm text-gray-500">{leave.days} day(s)</div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <ApprovalStepper
-                          steps={APPROVAL_STEPS}
-                          activeIndex={STAGE_INDEX[leave.stage]}
-                          declined={leave.status === 'denied'}
-                        />
-                      </td>
-                      <td className="px-6 py-4">                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(leave.status)}`}>
-                          {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm">
-                        {canAct && (
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost-success" size="sm" onClick={() => handleLeaveAction(leave.id, 'approve', leave.stage as 'manager' | 'hr')}>
-                              Approve
-                            </Button>
-                            <Button variant="ghost-danger" size="sm" onClick={() => handleLeaveAction(leave.id, 'deny', leave.stage as 'manager' | 'hr')}>
-                              Deny
-                            </Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );})}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {activeTab === 'my-leaves' && (
-          <div className="space-y-6">
-            {/* Leave balance cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-info-50 p-4 rounded-lg border border-info-100">
-                <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">Vacation Leave</h3>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="block text-sm text-info-600">Available</span>
-                    <span className="text-2xl font-bold text-info-600 tabular">{leaveBalance.vacation.available}</span>
-                  </div>
-                  <div>
-                    <span className="block text-sm text-info-600">Used</span>
-                    <span className="text-2xl font-bold text-info-600 tabular">{leaveBalance.vacation.used}</span>
-                  </div>
-                </div>
-                <div className="mt-2 w-full bg-info-200 rounded-full h-2">
-                  <div
-                    className="bg-info-600 h-2 rounded-full"
-                    style={{ width: `${(leaveBalance.vacation.used / leaveBalance.vacation.total) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="bg-success-50 p-4 rounded-lg border border-success-100">
-                <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">Sick Leave</h3>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="block text-sm text-success-600">Available</span>
-                    <span className="text-2xl font-bold text-success-600 tabular">{leaveBalance.sick.available}</span>
-                  </div>
-                  <div>
-                    <span className="block text-sm text-success-600">Used</span>
-                    <span className="text-2xl font-bold text-success-600 tabular">{leaveBalance.sick.used}</span>
-                  </div>
-                </div>
-                <div className="mt-2 w-full bg-success-200 rounded-full h-2">
-                  <div
-                    className="bg-success-600 h-2 rounded-full"
-                    style={{ width: `${(leaveBalance.sick.used / leaveBalance.sick.total) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="bg-gold-50 p-4 rounded-lg border border-gold-100">
-                <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">Personal Leave</h3>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="block text-sm text-gold-700">Available</span>
-                    <span className="text-2xl font-bold text-gold-700 tabular">{leaveBalance.personal.available}</span>
-                  </div>
-                  <div>
-                    <span className="block text-sm text-gold-700">Used</span>
-                    <span className="text-2xl font-bold text-gold-700 tabular">{leaveBalance.personal.used}</span>
-                  </div>
-                </div>
-                <div className="mt-2 w-full bg-gold-200 rounded-full h-2">
-                  <div
-                    className="bg-gold-600 h-2 rounded-full"
-                    style={{ width: `${(leaveBalance.personal.used / leaveBalance.personal.total) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-
-            {/* My leave history */}
-            <div>
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900 mb-4">My Leave History</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Type</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Approval</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {myLeaveHistory.map(leave => (
-                      <tr key={leave.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{leave.leaveType}</td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {leave.startDate === leave.endDate
-                            ? new Date(leave.startDate).toLocaleDateString()
-                            : `${new Date(leave.startDate).toLocaleDateString()} - ${new Date(leave.endDate).toLocaleDateString()}`}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">{leave.days}</td>
-                        <td className="px-6 py-4">
-                          <ApprovalStepper
-                            steps={APPROVAL_STEPS}
-                            activeIndex={STAGE_INDEX[leave.stage]}
-                            declined={leave.status === 'denied'}
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(leave.status)}`}>
-                            {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {myLeaveHistory.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">No leave history yet.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        {notice && (
+          <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-md border border-success-200 bg-success-50 px-4 py-2.5 text-sm text-success-800">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="text-success-700">✕</button>
           </div>
         )}
 
-        {activeTab === 'apply' && (
-          <div>
-            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900 mb-4">Apply for Leave</h3>
-            <form onSubmit={handleSubmitLeave} className="space-y-4 max-w-lg">
-              <div>
-                <label htmlFor="leaveType" className="block text-sm font-medium text-gray-700 mb-1">Leave Type</label>
-                <select
-                  id="leaveType"
-                  name="leaveType"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-                  value={newLeave.leaveType}
-                  onChange={handleNewLeaveChange}
-                  required
-                >
-                  <option>Vacation</option>
-                  <option>Sick Leave</option>
-                  <option>Personal Leave</option>
-                  <option>Work from Home</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    id="startDate"
-                    name="startDate"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-                    value={newLeave.startDate}
-                    onChange={handleNewLeaveChange}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                  <input
-                    type="date"
-                    id="endDate"
-                    name="endDate"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-                    value={newLeave.endDate}
-                    onChange={handleNewLeaveChange}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                <textarea
-                  id="reason"
-                  name="reason"
-                  rows={3}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-                  value={newLeave.reason}
-                  onChange={handleNewLeaveChange}
-                  required
-                />
-              </div>
-
-              {submitConfirmation && (
-                <div className="rounded-md bg-success-50 border border-success-200 text-success-800 text-sm px-4 py-3">
-                  {submitConfirmation}
-                </div>
-              )}
-
-              <div className="pt-3">
-                <Button type="submit">
-                  Submit Leave Request
-                </Button>
-              </div>
-            </form>
-          </div>
+        {tab === 'mine' && hasEmployeeRecord && (
+          <MyLeave key={reload} weekendDays={tenant?.weekendDays ?? [6, 0]} onNoRecord={handleNoRecord} onChanged={(m) => { setNotice(m); refresh(); }} fmt={fmt} />
         )}
+        {tab === 'mine' && !hasEmployeeRecord && (
+          <p className="text-sm text-gray-600">Your account has no employee record, so there is no personal leave to show.</p>
+        )}
+        {tab === 'approvals' && canApprove && <Requests key={reload} scope={isPeopleOps ? 'all' : 'team'} canDecide onChanged={(m) => { setNotice(m); refresh(); }} fmt={fmt} />}
+        {tab === 'settings' && isPeopleOps && <Settings key={reload} weekendDays={tenant?.weekendDays ?? [6, 0]} fmt={fmt} onChanged={(m) => setNotice(m)} />}
       </div>
+    </div>
+  );
+}
+
+type Fmt = ReturnType<typeof useFormat>;
+
+// ---------------------------------------------------------------------------------------------------
+
+function MyLeave({ weekendDays, onNoRecord, onChanged, fmt }: Readonly<{ weekendDays: number[]; onNoRecord: () => void; onChanged: (m: string) => void; fmt: Fmt }>) {
+  const year = Number(today().slice(0, 4));
+  const [balances, setBalances] = useState<LeaveBalance[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    leaveApi.balances(year).then((r) => setBalances(r.items)).catch((e) => {
+      if (e instanceof ApiError && e.status === 403) onNoRecord();
+      else setError(errorText(e));
+    });
+  }, [year, onNoRecord]);
+
+  return (
+    <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-danger-700">{error}</p>}
+      <section aria-label={`Leave balances for ${year}`}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold text-ink-900">{year} balances</h3>
+          <Button variant="success" onClick={() => setShowForm(true)}>Request leave</Button>
+        </div>
+        {!balances ? (
+          <div className="h-20 animate-pulse rounded-lg bg-ivory-200" aria-hidden="true" />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {balances.filter((b) => b.entitlement !== null || Number(b.used) + Number(b.pending) > 0 || b.leaveType === 'ANNUAL' || b.leaveType === 'SICK').map((b) => (
+              <div key={b.leaveType} className="rounded-lg border border-ivory-300 p-4">
+                <div className="text-sm text-gray-500">{TYPE_LABEL[b.leaveType]}</div>
+                <div className="mt-1 text-2xl font-semibold text-ink-900">
+                  {b.remaining === null ? 'No limit' : `${days(b.remaining)} left`}
+                </div>
+                <div className="mt-1 text-xs text-gray-500">
+                  {b.entitlement !== null ? `of ${days(b.entitlement)} · ` : ''}{days(b.used)} taken · {days(b.pending)} pending
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section aria-label="My requests">
+        <h3 className="mb-3 text-[15px] font-semibold text-ink-900">My requests</h3>
+        <Requests scope="mine" canDecide={false} onChanged={onChanged} fmt={fmt} />
+      </section>
+
+      {showForm && (
+        <RequestForm
+          weekendDays={weekendDays}
+          onClose={() => setShowForm(false)}
+          onCreated={(l) => { setShowForm(false); onChanged(`Requested ${days(l.days)} working day(s) of ${TYPE_LABEL[l.leaveType].toLowerCase()}.`); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+
+function RequestForm({ weekendDays, onClose, onCreated }: Readonly<{ weekendDays: number[]; onClose: () => void; onCreated: (l: LeaveRequest) => void }>) {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [leaveType, setLeaveType] = useState<LeaveType>('ANNUAL');
+  const [reason, setReason] = useState('');
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const year = startDate ? Number(startDate.slice(0, 4)) : undefined;
+  useEffect(() => {
+    if (year) holidaysApi.list(year).then(setHolidays).catch(() => setHolidays([]));
+  }, [year]);
+
+  const estimate = useMemo(() => {
+    if (!startDate || !endDate || endDate < startDate) return null;
+    return countWorkingDays(startDate, endDate, { weekendDays, holidays: new Set(holidays.map((h) => h.date)) });
+  }, [startDate, endDate, weekendDays, holidays]);
+
+  const problem = (): string | null => {
+    if (!startDate || !endDate) return 'Choose the first and last day.';
+    if (endDate < startDate) return 'The last day cannot be before the first day.';
+    if (startDate.slice(0, 4) !== endDate.slice(0, 4)) return 'A request cannot span two calendar years. Submit one request per year.';
+    if (estimate === 0) return 'These dates contain no working days (weekends and holidays are excluded).';
+    if (!reason.trim()) return 'Add a short reason.';
+    return null;
+  };
+
+  const submit = async () => {
+    const p = problem();
+    if (p) { setError(p); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      onCreated(await leaveApi.create({ startDate, endDate, leaveType, reason: reason.trim() }));
+    } catch (e) {
+      setError(errorText(e));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="Request leave" onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
+        <Select id="leaveType" label="Type" value={leaveType} onChange={(e) => setLeaveType(e.target.value as LeaveType)} options={LEAVE_TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] }))} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input id="startDate" type="date" label="First day" value={startDate} onChange={(e) => { setStartDate(e.target.value); if (!endDate) setEndDate(e.target.value); }} required />
+          <Input id="endDate" type="date" label="Last day" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} required />
+        </div>
+        {estimate !== null && (
+          <p className="-mt-2 mb-4 text-sm text-gray-600" aria-live="polite">About {estimate} working day{estimate === 1 ? '' : 's'} (weekends and holidays excluded). The final count is confirmed when you submit.</p>
+        )}
+        <Input id="reason" label="Reason" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} required />
+        {error && <p role="alert" className="mb-3 text-sm text-danger-700">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" isLoading={saving}>Submit request</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+
+function Requests({ scope, canDecide, onChanged, fmt }: Readonly<{ scope: 'mine' | 'team' | 'all'; canDecide: boolean; onChanged: (m: string) => void; fmt: Fmt }>) {
+  const [status, setStatus] = useState<'' | LeaveStatus>(canDecide ? 'PENDING' : '');
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<Page<LeaveRequest> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [rejecting, setRejecting] = useState<LeaveRequest | null>(null);
+  const [reason, setReason] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    leaveApi
+      .list({ scope, status: status || undefined, page, pageSize: PAGE_SIZE }, controller.signal)
+      .then(setData)
+      .catch((e) => { if ((e as Error).name !== 'AbortError') setError(errorText(e)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [scope, status, page, tick]);
+
+  const act = async (leave: LeaveRequest, action: 'approve' | 'cancel') => {
+    setBusyId(leave.id);
+    setActionError(null);
+    try {
+      if (action === 'approve') { await leaveApi.approve(leave.id); onChanged(`Approved ${leave.employee.name}'s request.`); }
+      else { await leaveApi.cancel(leave.id); onChanged('Request cancelled.'); }
+      setTick((t) => t + 1);
+    } catch (e) {
+      setActionError(errorText(e));
+      setTick((t) => t + 1); // the request may have changed under us: reload
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const confirmReject = async () => {
+    if (!rejecting) return;
+    if (!reason.trim()) { setActionError('A reason is required to reject a request.'); return; }
+    setBusyId(rejecting.id);
+    setActionError(null);
+    try {
+      await leaveApi.reject(rejecting.id, reason.trim());
+      onChanged(`Rejected ${rejecting.employee.name}'s request.`);
+      setRejecting(null);
+      setReason('');
+      setTick((t) => t + 1);
+    } catch (e) {
+      setActionError(errorText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const items = data?.items ?? [];
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-3">
+        <label htmlFor={`status-${scope}`} className="text-sm text-gray-700">Status</label>
+        <select id={`status-${scope}`} className="rounded-md border-gray-300 text-sm shadow-sm focus:border-gold-500 focus:ring-gold-400" value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }}>
+          <option value="">All</option>
+          {(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const).map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+        </select>
+      </div>
+
+      {error && (
+        <div role="alert" className="mb-3 flex items-center justify-between rounded-md border border-danger-200 bg-danger-50 px-4 py-2 text-sm text-danger-800">
+          <span>Could not load requests. {error}</span>
+          <Button size="sm" variant="outline" onClick={() => setTick((t) => t + 1)}>Retry</Button>
+        </div>
+      )}
+      {actionError && !rejecting && <p role="alert" className="mb-3 text-sm text-danger-700">{actionError}</p>}
+
+      <div className="overflow-x-auto" aria-busy={loading}>
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              {[...(scope === 'mine' ? [] : ['Employee']), 'Type', 'Dates', 'Days', 'Status', ''].map((h, i) => (
+                <th key={i} scope="col" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 bg-white">
+            {loading && items.length === 0 && <tr aria-hidden="true"><td colSpan={6} className="px-4 py-4"><div className="h-6 animate-pulse rounded bg-ivory-200" /></td></tr>}
+            {items.map((l) => {
+              return (
+                <tr key={l.id} className={loading ? 'opacity-60' : ''}>
+                  {scope !== 'mine' && <td className="px-4 py-3 text-sm"><div className="font-medium text-gray-900">{l.employee.name}</div><div className="text-xs text-gray-500">{l.employee.employeeId}</div></td>}
+                  <td className="px-4 py-3 text-sm text-gray-700">{TYPE_LABEL[l.leaveType]}<div className="max-w-[16rem] truncate text-xs text-gray-500" title={l.reason}>{l.reason}</div></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">{fmt.date(l.startDate)}{l.endDate !== l.startDate && ` – ${fmt.date(l.endDate)}`}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{days(l.days)}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <StatusBadge status={l.status} />
+                    {l.rejectionReason && <div className="mt-1 max-w-[14rem] text-xs text-gray-500">Reason: {l.rejectionReason}</div>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
+                    <div className="flex justify-end gap-1">
+                      {canDecide && l.status === 'PENDING' && (
+                        <>
+                          <Button size="sm" variant="ghost-primary" isLoading={busyId === l.id} onClick={() => act(l, 'approve')}>Approve</Button>
+                          <Button size="sm" variant="ghost-danger" disabled={busyId === l.id} onClick={() => { setRejecting(l); setReason(''); setActionError(null); }}>Reject</Button>
+                        </>
+                      )}
+                      {(scope === 'mine' ? (l.status === 'PENDING' || (l.status === 'APPROVED' && l.startDate > today())) : false) && (
+                        <Button size="sm" variant="ghost-secondary" isLoading={busyId === l.id} onClick={() => act(l, 'cancel')}>Cancel</Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {!loading && !error && items.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">{scope === 'mine' ? 'You have no leave requests yet.' : status === 'PENDING' ? 'Nothing is waiting for a decision.' : 'No requests match this filter.'}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <nav className="mt-4 flex items-center justify-between" aria-label="Pagination">
+        <span className="text-sm text-gray-700">{data && data.total > 0 ? `${fmt.number(data.total)} request${data.total === 1 ? '' : 's'}` : ''}</span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+          <span className="self-center text-sm text-gray-600">Page {page} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>Next</Button>
+        </div>
+      </nav>
+
+      {rejecting && (
+        <Modal title={`Reject ${rejecting.employee.name}'s request`} onClose={() => setRejecting(null)}>
+          <Input id="rejectReason" label="Reason (shared with the employee)" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} required />
+          {actionError && <p role="alert" className="mb-3 text-sm text-danger-700">{actionError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRejecting(null)}>Cancel</Button>
+            <Button variant="danger" isLoading={busyId === rejecting.id} onClick={confirmReject}>Reject request</Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+
+function Settings({ weekendDays, fmt, onChanged }: Readonly<{ weekendDays: number[]; fmt: Fmt; onChanged: (m: string) => void }>) {
+  const year = Number(today().slice(0, 4));
+  const [policies, setPolicies] = useState<LeavePolicy[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [drafts, setDrafts] = useState<Partial<Record<LeaveType, string>>>({});
+  const [holidayDate, setHolidayDate] = useState('');
+  const [holidayName, setHolidayName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    Promise.all([leaveApi.policies(), holidaysApi.list(year)])
+      .then(([p, h]) => { setPolicies(p); setHolidays(h); })
+      .catch((e) => setError(errorText(e)));
+  }, [year, tick]);
+
+  const run = async (fn: () => Promise<unknown>, message: string) => {
+    setError(null);
+    try { await fn(); onChanged(message); setTick((t) => t + 1); } catch (e) { setError(errorText(e)); }
+  };
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      {error && <p role="alert" className="text-sm text-danger-700 lg:col-span-2">{error}</p>}
+      <section aria-label="Leave policies">
+        <h3 className="mb-1 text-[15px] font-semibold text-ink-900">Annual entitlements</h3>
+        <p className="mb-3 text-xs text-gray-500">Days per calendar year. A type with no entitlement is not limited.</p>
+        <div className="space-y-2">
+          {LEAVE_TYPES.map((t) => {
+            const current = policies.find((p) => p.leaveType === t)?.daysPerYear;
+            const draft = drafts[t] ?? (current === undefined ? '' : String(Number(current)));
+            return (
+              <div key={t} className="flex items-center gap-2">
+                <label htmlFor={`policy-${t}`} className="w-40 text-sm text-gray-700">{TYPE_LABEL[t]}</label>
+                <input id={`policy-${t}`} inputMode="decimal" placeholder="No limit" className="w-24 rounded-md border-gray-300 text-sm shadow-sm focus:border-gold-500 focus:ring-gold-400" value={draft} onChange={(e) => setDrafts({ ...drafts, [t]: e.target.value })} />
+                <Button size="sm" variant="outline" disabled={draft === '' || draft === (current === undefined ? '' : String(Number(current)))} onClick={() => run(() => leaveApi.setPolicy(t, draft), `${TYPE_LABEL[t]} set to ${draft} days a year.`)}>Save</Button>
+                {current !== undefined && <Button size="sm" variant="ghost-danger" onClick={() => run(async () => { await leaveApi.removePolicy(t); setDrafts({ ...drafts, [t]: undefined }); }, `${TYPE_LABEL[t]} is no longer limited.`)}>Remove limit</Button>}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section aria-label="Holidays">
+        <h3 className="mb-1 text-[15px] font-semibold text-ink-900">Holidays {year}</h3>
+        <p className="mb-3 text-xs text-gray-500">Weekend: {weekendDays.length ? weekendDays.map((d) => WEEKDAYS[d]).join(', ') : 'none'}. Weekends and holidays are not counted as leave days.</p>
+        <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (holidayDate && holidayName.trim()) void run(async () => { await holidaysApi.create({ date: holidayDate, name: holidayName.trim() }); setHolidayDate(''); setHolidayName(''); }, 'Holiday added.'); }}>
+          <div><label htmlFor="holidayDate" className="mb-1 block text-xs text-gray-600">Date</label><input id="holidayDate" type="date" className="rounded-md border-gray-300 text-sm shadow-sm" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} /></div>
+          <div><label htmlFor="holidayName" className="mb-1 block text-xs text-gray-600">Name</label><input id="holidayName" className="rounded-md border-gray-300 text-sm shadow-sm" maxLength={120} value={holidayName} onChange={(e) => setHolidayName(e.target.value)} /></div>
+          <Button type="submit" size="sm" variant="primary" disabled={!holidayDate || !holidayName.trim()}>Add holiday</Button>
+        </form>
+        {holidays.length === 0 ? <p className="text-sm text-gray-500">No holidays configured for {year}.</p> : (
+          <ul className="divide-y divide-ivory-200 rounded-lg border border-ivory-300">
+            {holidays.map((h) => (
+              <li key={h.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                <span><span className="font-medium text-ink-900">{fmt.date(h.date)}</span> · {h.name}</span>
+                <Button size="sm" variant="ghost-danger" onClick={() => run(() => holidaysApi.remove(h.id), 'Holiday removed.')}>Remove</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

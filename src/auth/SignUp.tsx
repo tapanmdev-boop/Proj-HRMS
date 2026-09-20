@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { clearAuthError, selectAuthError, selectAuthLoading, signup } from './authSlice';
-import { browserDefaults, countryOptions, currencyOptions, localeOptions, suggestedCurrency, timezoneOptions } from '../i18n/regions';
+import { browserDefaults, countryOptions, currencyOptions, localeOptions, suggestedCurrency, suggestedWeekend, timezoneOptions } from '../i18n/regions';
+import { WEEKDAY_INDEXES } from '../i18n/workdays';
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const inputClass =
   'block h-11 w-full rounded-lg border border-ivory-400 bg-white px-3.5 text-[14px] text-ink-900 placeholder:text-gray-400 transition-colors hover:border-gray-400 focus:border-gold-500 focus:outline-none focus:ring-4 focus:ring-gold-100';
@@ -46,6 +49,7 @@ export default function SignUp() {
   const [baseCurrency, setBaseCurrency] = useState(suggestedCurrency(defaults.countryCode) ?? 'USD');
   const [defaultTimezone, setDefaultTimezone] = useState(defaults.timezone);
   const [defaultLocale, setDefaultLocale] = useState(locales.some((l) => l.value === defaults.locale) ? defaults.locale : 'en');
+  const [weekendDays, setWeekendDays] = useState<number[]>(suggestedWeekend(defaults.countryCode));
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -55,7 +59,11 @@ export default function SignUp() {
     setCountryCode(code);
     const hint = suggestedCurrency(code);
     if (hint) setBaseCurrency(hint);
+    setWeekendDays(suggestedWeekend(code));
   };
+
+  const toggleWeekend = (day: number) =>
+    setWeekendDays((current) => (current.includes(day) ? current.filter((d) => d !== day) : [...current, day]).sort((a, b) => a - b));
 
   const onName = (value: string) => {
     setOrganizationName(value);
@@ -76,6 +84,7 @@ export default function SignUp() {
         baseCurrency,
         defaultTimezone,
         defaultLocale,
+        weekendDays,
       }),
     );
     if (signup.fulfilled.match(result)) navigate('/hrms', { replace: true });
@@ -156,6 +165,20 @@ export default function SignUp() {
             </div>
           </fieldset>
 
+          <fieldset>
+            <legend className="mb-1 text-[13px] font-medium text-gray-700">Weekend (non-working days)</legend>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAY_INDEXES.map((day) => (
+                <label key={day} className={`cursor-pointer rounded-lg border px-3 py-1.5 text-[13px] ${weekendDays.includes(day) ? 'border-gold-500 bg-gold-50 text-ink-900' : 'border-ivory-400 bg-white text-gray-600'}`}>
+                  <input type="checkbox" className="sr-only" checked={weekendDays.includes(day)} onChange={() => toggleWeekend(day)} />
+                  {WEEKDAY_NAMES[day].slice(0, 3)}
+                </label>
+              ))}
+            </div>
+            {weekendDays.length === 7 && <p role="alert" className="mt-1 text-[12px] text-danger-700">Leave at least one working day.</p>}
+            <p className="mt-1 text-[12px] text-gray-500">Used to count leave days. You can change this later.</p>
+          </fieldset>
+
           <fieldset className="space-y-4">
             <legend className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Administrator</legend>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -176,7 +199,7 @@ export default function SignUp() {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || weekendDays.length === 7}
             className="flex h-11 w-full items-center justify-center rounded-lg bg-ink-900 text-[14px] font-medium text-ivory-50 transition-colors hover:bg-ink-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ivory-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isLoading ? 'Creating…' : 'Create organization'}

@@ -8,6 +8,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { session } from './http';
 import { authApi, departmentsApi, employeesApi, tenantApi } from './endpoints';
+import { holidaysApi, leaveApi } from './leave';
+import { countWorkingDays } from '../i18n/workdays';
 import { toUser } from '../auth/authSlice';
 import { createFormatters } from '../i18n/format';
 
@@ -73,6 +75,37 @@ describe.skipIf(!live)('frontend ↔ backend contract', () => {
       expect(e).not.toHaveProperty('identifiers');
     }
     await expect(employeesApi.create({ email: 'x@x.test', password: 'Str0ng-Passw0rd!', firstName: 'X', lastName: 'Y', position: 'Z', joinDate: '2026-01-01', salary: '1' })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('runs leave end to end and agrees with the client-side working-day estimate', async () => {
+    // Fresh admin session (test setup clears storage between tests), then a manager-report pair.
+    session.set(await authApi.login({ tenant: slug, email: `admin@${slug}.test`, password: 'Str0ng-Passw0rd!' }));
+    const manager = await employeesApi.create({ email: `mgr@${slug}.test`, password: 'Str0ng-Passw0rd!', firstName: 'Mia', lastName: 'Manager', role: 'MANAGER', position: 'Lead', joinDate: '2020-01-01', salary: '1' });
+    const worker = await employeesApi.create({ email: `wrk@${slug}.test`, password: 'Str0ng-Passw0rd!', firstName: 'Will', lastName: 'Worker', position: 'Dev', joinDate: '2020-01-01', salary: '1', managerId: manager.id });
+
+    // A Friday/Saturday weekend and a holiday: the UI's estimate must equal the server's count.
+    await tenantApi.update({ weekendDays: [5, 6] });
+    await holidaysApi.create({ date: '2099-03-03', name: 'Contract test day' });
+    await leaveApi.setPolicy('ANNUAL', '10');
+
+    session.set(await authApi.login({ tenant: slug, email: worker.email, password: 'Str0ng-Passw0rd!' }));
+    const holidays = await holidaysApi.list(2099);
+    const estimate = countWorkingDays('2099-03-01', '2099-03-07', { weekendDays: [5, 6], holidays: new Set(holidays.map((h) => h.date)) });
+    const created = await leaveApi.create({ startDate: '2099-03-01', endDate: '2099-03-07', leaveType: 'ANNUAL', reason: 'Contract test' });
+    expect(created.days).toBe(String(estimate));
+    expect(created).toMatchObject({ status: 'PENDING', startDate: '2099-03-01', endDate: '2099-03-07' });
+
+    const balance = await leaveApi.balances(2099);
+    expect(balance.items.find((i) => i.leaveType === 'ANNUAL')).toMatchObject({ entitlement: '10', pending: String(estimate) });
+
+    // The manager sees it in the team scope and approves it; the employee cannot.
+    await expect(leaveApi.approve(created.id)).rejects.toMatchObject({ status: 403 });
+    session.set(await authApi.login({ tenant: slug, email: manager.email, password: 'Str0ng-Passw0rd!' }));
+    const team = await leaveApi.list({ scope: 'team', status: 'PENDING' });
+    expect(team.items.map((l) => l.id)).toContain(created.id);
+    const approved = await leaveApi.approve(created.id);
+    expect(approved.status).toBe('APPROVED');
+    await expect(leaveApi.approve(created.id)).rejects.toMatchObject({ status: 409 });
   });
 
   it('rotates the session with the stored refresh token and rejects a bad one', async () => {

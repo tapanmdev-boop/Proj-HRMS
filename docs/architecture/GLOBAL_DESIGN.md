@@ -32,9 +32,12 @@ Current packs: AE (identifiers, gratuity, WPS export), IN, GB, US, DE, SA (ident
 3. A rule is offered to users only after legal/payroll validation in that jurisdiction. Until then it must be labelled as an estimate or not offered.
 4. Never hardcode a rule as universal.
 
-## 5. What "global" does not yet cover
+## 5. Work calendar (weekends and holidays)
+Weekends are configuration (`tenants.weekendDays`, any subset of the week except all seven days) and holidays are per-organization dates, so the same code serves Saturday/Sunday, Friday/Saturday, Sunday-only and six-day weeks. Working-day counting is pure calendar arithmetic on ISO dates (no timezone or DST dependence), implemented identically on the server (`backend/src/leave/working-days.ts`) and client (`src/i18n/workdays.ts`), and verified against each other in the live contract test.
+
+## 6. What "global" does not yet cover
 - Translations of the UI text (formats are localized; labels are English).
 - Right-to-left layout review for Arabic/Hebrew locales.
-- Country-specific leave, holiday and working-time rules (Stage: Leave/Attendance).
+- Country-specific statutory leave entitlements, public-holiday data, and working-time/overtime rules (leave entitlements are configured per organization; nothing is pre-loaded for any country).
 - Statutory payroll for any country (Stage: Payroll).
 - Data residency, per-region retention and privacy regimes (GDPR, etc.) need jurisdiction-specific validation.

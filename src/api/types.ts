@@ -27,6 +27,8 @@ export interface Tenant {
   defaultTimezone: string;
   baseCurrency: string;
   weekStartsOn: number;
+  /** Non-working weekdays, 0 = Sunday ... 6 = Saturday */
+  weekendDays: number[];
   fiscalYearStartMonth: number;
 }
 
@@ -41,6 +43,7 @@ export interface SignupInput {
   defaultLocale?: string;
   defaultTimezone?: string;
   baseCurrency?: string;
+  weekendDays?: number[];
 }
 
 export interface Page<T> {

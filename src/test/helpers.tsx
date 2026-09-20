@@ -7,7 +7,7 @@ import type { User } from '../auth/authSlice';
 
 export const tenantFor = (over: Partial<Tenant> = {}): Tenant => ({
   id: 't1', name: 'acme', displayName: 'Acme', countryCode: 'DE', defaultLocale: 'de-DE',
-  defaultTimezone: 'Europe/Berlin', baseCurrency: 'EUR', weekStartsOn: 1, fiscalYearStartMonth: 1, ...over,
+  defaultTimezone: 'Europe/Berlin', baseCurrency: 'EUR', weekStartsOn: 1, weekendDays: [6, 0], fiscalYearStartMonth: 1, ...over,
 });
 
 export const userFor = (role: User['role'], over: Partial<User> = {}): User => ({

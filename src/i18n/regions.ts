@@ -77,4 +77,11 @@ const CURRENCY_HINT: Record<string, string> = {
   SE: 'SEK', SG: 'SGD', TH: 'THB', TR: 'TRY', TW: 'TWD', UA: 'UAH', US: 'USD', VN: 'VND', ZA: 'ZAR',
 };
 
+// Countries whose usual weekend is Friday and Saturday. Everywhere else defaults to Saturday and Sunday.
+// This is only a starting suggestion: organizations set their own weekend (some use a single day, and
+// public-sector and private-sector weekends can differ within a country).
+const FRIDAY_SATURDAY_WEEKEND = new Set(['SA', 'KW', 'QA', 'BH', 'OM', 'EG', 'IL', 'JO', 'IQ', 'BD', 'DZ', 'YE', 'SY', 'LY']);
+
+export const suggestedWeekend = (countryCode: string): number[] => (FRIDAY_SATURDAY_WEEKEND.has(countryCode) ? [5, 6] : [6, 0]);
+
 export const suggestedCurrency = (countryCode: string): string | undefined => CURRENCY_HINT[countryCode];

@@ -1,17 +1,17 @@
 # Implementation Status
 
-Reflects the repository at the end of Stage B2 (Employees). Every "verified" claim names the test or command that verifies it. Anything not listed here is **not implemented**. The Phase 0 documents under `docs/audit/` describe the system *before* this work; the resolution table in `DEFECT_RISK_REGISTER.md` maps each finding to its outcome.
+Reflects the repository at the end of Stage B3 (Leave). Every "verified" claim names the test or command that verifies it. Anything not listed here is **not implemented**. The Phase 0 documents under `docs/audit/` describe the system *before* this work; the resolution table in `DEFECT_RISK_REGISTER.md` maps each finding to its outcome.
 
 ## Verification summary (run 2026-09-20)
 | Check | Result |
 |---|---|
 | Backend `tsc --noEmit` / `nest build` | pass |
-| Backend e2e (Jest + supertest, real Postgres 15) | **107 passed** in 3 suites (`backend/test`) |
+| Backend e2e (Jest + supertest, real Postgres 15) | **150 passed** in 4 suites (`backend/test`); 16 unit tests (`working-days.spec.ts`) |
 | Frontend `tsc -b` / `vite build` | pass |
-| Frontend unit + component tests (Vitest) | **87 passed** (`npm test`) |
-| Live frontend ↔ backend contract (`src/api/live.contract.test.ts`, `LIVE_API=true`) | **5 passed** against a running API |
+| Frontend unit + component tests (Vitest) | **106 passed** (`npm test`) |
+| Live frontend ↔ backend contract (`src/api/live.contract.test.ts`, `LIVE_API=true`) | **6 passed** against a running API |
 | Frontend lint | 14 errors / 1 warning remain (was 86 / 4); all in modules not yet migrated |
-| Migrations | 3, applied cleanly to an empty DB; migration 2 also verified on populated data and for duplicate-blocking; no drift vs `schema.prisma` |
+| Migrations | 4, applied cleanly to an empty DB; migration 2 also verified on populated data and for duplicate-blocking; no drift vs `schema.prisma` |
 
 ## Done and verified
 | Area | What exists | Evidence |
@@ -25,19 +25,27 @@ Reflects the repository at the end of Stage B2 (Employees). Every "verified" cla
 | Global regional settings | Per-organization country, language, timezone, currency, week start, fiscal year; validated against ICU data (any country); settings API | `global-and-sessions.e2e-spec.ts` (6 countries) |
 | Employees & departments | Paginated/searchable/filterable directory, create-with-login, update, terminate (revokes access), reporting-line integrity, field-level privacy for pay/identity data | `employees.e2e-spec.ts` (46 tests), `Employees.test.tsx`, live contract |
 | Frontend session & routing | Real login/sign-up, session restore on reload, single-flight token refresh, role-aware routes from the navigation config | `http.test.ts`, `ProtectedRoute.test.tsx` |
+| Leave | Requests, approvals (manager of the employee, HR or admin; never your own), rejection with reason, cancellation rules, per-type annual entitlements, balances (entitlement/used/pending/remaining), team and organization views, holidays, overlap protection, balance enforced under concurrency (advisory lock), audit events. Working days come from a **per-organization calendar** (configurable weekend days and holidays), computed identically on server and client | `leave.e2e-spec.ts` (43), `working-days.spec.ts` (16), `LeaveManagement.test.tsx` (17), live contract |
 | Global formatting | Money/date/number follow the organization's locale, timezone, currency | `format.test.ts` |
 | Jurisdiction packs | Country-specific identifiers/allowances/end-of-service/payroll export isolated per country with a neutral fallback | `packs.test.ts` |
 
 ## Not done (still mock or missing)
 Everything below still runs on sample data in the UI, or has no backend, and must not be presented as functional:
 
-- **Frontend pages on mock data:** Dashboard, Attendance, Leave, Payroll (labelled "Sample data"), Expenses, Documents, Onboarding, Offboarding, Reports, Profile, Org chart, Plans & Billing, all Recruitment and Performance pages, notifications, AI assistant.
-- **Backend stubs:** attendance, leave, payroll (summary returns zeros), documents (no upload endpoint), admin stats, notifications (no endpoints). They now require authentication and roles, but return placeholder data.
-- **Not built:** permission/module registry and Super Admin control centre, workflow engine, leave policies/balances, shifts, payroll engine, recruitment, performance, expenses, analytics, integrations, learning, benefits, helpdesk.
+- **Frontend pages on mock data:** Dashboard, Attendance, Payroll (labelled "Sample data"), Expenses, Documents, Onboarding, Offboarding, Reports, Profile, Org chart, Plans & Billing, all Recruitment and Performance pages, notifications, AI assistant.
+- **Backend stubs:** attendance, payroll (summary returns zeros), documents (no upload endpoint), admin stats, notifications (no endpoints). They now require authentication and roles, but return placeholder data.
+- **Not built:** permission/module registry and Super Admin control centre, workflow engine (leave uses a single decision by the manager or HR; multi-level approval chains, accrual, carry-forward, half days, leave attachments, and email/in-app notifications on decisions are not built), shifts, payroll engine, recruitment, performance, expenses, analytics, integrations, learning, benefits, helpdesk.
 - **Payroll engine:** the queue processor is jurisdiction-neutral (no hardcoded tax; explicit rate input) but is not wired to any API. No statutory calculation has been validated for any country.
 - **Jurisdiction packs:** identifier formats are input hints, not server-side validation. The UAE gratuity and WPS modules are draft implementations and are offered only to organizations whose country is AE; they need legal validation before real payouts.
 - **Security gaps:** refresh token is kept in `localStorage` (an httpOnly cookie is stronger); no MFA or password-reset flow; OAuth sign-in only links existing users and Microsoft matching is by provider id only; secrets are environment variables (no vault); file upload validation not built because uploads are not built.
 - **Operational:** no CI pipeline; no load/performance testing; accessibility checked only for the new dialog/form patterns, not audited.
+
+## Leave: behaviours to be aware of
+- A request cannot span two calendar years (submit one per year); entitlements are per calendar year with no accrual or carry-forward.
+- Every day is a whole day (no half days). Days already taken before this system was adopted are not imported.
+- Holidays are entered manually per organization; there is no built-in public-holiday data for any country.
+- The previous mock UI showed a two-stage manager → HR chain that never existed on any backend; the real flow is one decision.
+- Weekend defaults are suggestions by country (Friday/Saturday for a list of countries, Saturday/Sunday otherwise) and are editable; they are not legal advice and can differ by sector.
 
 ## Known issues to be aware of
 - Login with an organization slug is required; there is no "find my organization" flow.
@@ -46,7 +54,7 @@ Everything below still runs on sample data in the UI, or has no backend, and mus
 - The frontend `package.json` still contains backend dependencies (NestJS, Prisma, …); they should be removed in a dedicated cleanup.
 
 ## Next stages (proposed order)
-1. Documents (upload endpoint, S3/MinIO, type/size validation, malware-scan hook) → Leave (policies, balances, approvals) → Attendance → Notifications.
+1. Attendance (clock in/out, regularization, uses the same calendar) → Documents (upload endpoint, S3/MinIO, type/size validation, malware-scan hook) → Notifications (leave decisions first).
 2. Thin permission layer (`module.feature.action` strings) and module registry, then the Super Admin control centre.
 3. Payroll engine with jurisdiction adapters; each country needs validated rules, effective dates and test vectors.
 4. Recruitment, performance, engagement, expenses, analytics.
