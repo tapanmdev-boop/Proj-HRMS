@@ -36,14 +36,22 @@ lerna-debug.log*
 
 # Environment variables
 .env
+!.env.example
 .env.local
 .env.development
 .env.test
 .env.production
 
 # Prisma
-/prisma/migrations/
+# migrations are tracked in git
 /prisma/.env
 
 # Temporary uploads
 /uploads
+
+# compiled output beside sources must never be committed
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+prisma/*.js
+!src/simple-server.js
