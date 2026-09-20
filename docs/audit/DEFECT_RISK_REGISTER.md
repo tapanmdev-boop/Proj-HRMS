@@ -87,7 +87,7 @@ The tables above are the original findings (evidence as of Phase 0). Outcome per
 | S12 hardcoded credentials | **Fixed** in code (S3 service); compose defaults are development-only and env-overridable | code review |
 | S13 mock auth, no route RBAC, demo creds | **Fixed** (real auth; role rules from nav config; demo panel removed) | `ProtectedRoute.test.tsx`, live contract |
 | S14 plaintext bank/Float salary | **Partly fixed**: Decimal money, field-level privacy. Bank/identity data is **not** encrypted at rest | e2e; see SECURITY_CONTROLS gaps |
-| S15 `.env` not ignored (root) | **Open** (frontend uses `.env.local`, ignored via `*.local`; add `.env` to root `.gitignore`) | |
+| S15 `.env` not ignored (root) | **Fixed** (root `.gitignore` now ignores `.env`/`.env.*`, keeps `.env.example`) | |
 | B01–B05 build/runtime | **Fixed** | `nest build`, `npm ci --dry-run`, app boots |
 | B06 `withTenant()` broken | **Fixed** (removed; explicit tenant scoping) | e2e |
 | B07 dependency hygiene | **Partly fixed** (express 5, unused deps removed). aws-sdk v2, multer 1.x, TS 4.9 remain | install warnings |

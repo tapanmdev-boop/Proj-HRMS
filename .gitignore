@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment files (templates named .env.example are tracked)
+.env
+.env.*
+!.env.example
