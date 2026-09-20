@@ -16,6 +16,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { DepartmentsModule } from './departments/departments.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import configuration from './config/configuration';
@@ -54,6 +55,7 @@ import { validationSchema } from './config/validation';
     AuthModule,
     TenantsModule,
     UsersModule,
+    DepartmentsModule,
     EmployeesModule,
     AttendanceModule,
     LeaveModule,

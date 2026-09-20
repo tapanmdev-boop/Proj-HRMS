@@ -142,6 +142,8 @@ model Employee {
   bankAccount      String?
   salary           Decimal   @db.Decimal(19, 4)
   currency         String?   @db.Char(3) // ISO 4217; falls back to tenant.baseCurrency when null
+  identifiers      Json? // jurisdiction-specific ids as { type: value }, e.g. { "national_id": "...", "tax_id": "..." }
+  allowances       Json? // pay components beyond base salary as [{ code, label?, amount }]
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   tenantId         String
