@@ -1,0 +1,163 @@
+{
+  "users": [
+    {
+      "id": "1",
+      "email": "admin@hrms.com",
+      "password": "admin123", 
+      "name": "Admin User",
+      "role": "admin"
+    },
+    {
+      "id": "2",
+      "email": "hr@hrms.com",
+      "password": "hr123",
+      "name": "HR Manager",
+      "role": "hr"
+    },
+    {
+      "id": "3",
+      "email": "employee@hrms.com",
+      "password": "employee123",
+      "name": "John Employee",
+      "role": "employee"
+    }
+  ],
+  "employees": [
+    {
+      "id": "1",
+      "name": "John Smith",
+      "email": "john.smith@company.com",
+      "department": "Engineering",
+      "position": "Software Engineer",
+      "joinDate": "2023-01-15",
+      "status": "Active"
+    },
+    {
+      "id": "2",
+      "name": "Maria Garcia",
+      "email": "maria.garcia@company.com",
+      "department": "Marketing",
+      "position": "Marketing Specialist",
+      "joinDate": "2022-08-03",
+      "status": "Active"
+    },
+    {
+      "id": "3",
+      "name": "Robert Johnson",
+      "email": "robert.johnson@company.com",
+      "department": "Finance",
+      "position": "Financial Analyst",
+      "joinDate": "2023-03-21",
+      "status": "Active"
+    }
+  ],
+  "jobs": [
+    {
+      "id": "1",
+      "title": "Full Stack Developer",
+      "department": "Engineering",
+      "location": "Remote",
+      "type": "Full-time",
+      "postedDate": "2025-05-15",
+      "status": "Open"
+    },
+    {
+      "id": "2",
+      "title": "UX/UI Designer",
+      "department": "Design",
+      "location": "New York, NY",
+      "type": "Full-time",
+      "postedDate": "2025-05-20",
+      "status": "Open"
+    },
+    {
+      "id": "3",
+      "title": "Product Manager",
+      "department": "Product",
+      "location": "San Francisco, CA",
+      "type": "Full-time",
+      "postedDate": "2025-05-25",
+      "status": "Open"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "1",
+      "name": "Emily Johnson",
+      "email": "emily.johnson@email.com",
+      "jobId": "2",
+      "status": "Interview",
+      "appliedDate": "2025-06-08"
+    },
+    {
+      "id": "2",
+      "name": "Michael Roberts",
+      "email": "michael.roberts@email.com",
+      "jobId": "1",
+      "status": "Screening",
+      "appliedDate": "2025-06-07"
+    },
+    {
+      "id": "3",
+      "name": "Sarah Wilson",
+      "email": "sarah.wilson@email.com",
+      "jobId": "3",
+      "status": "Assessment",
+      "appliedDate": "2025-06-05"
+    }
+  ],
+  "leave_requests": [
+    {
+      "id": "1",
+      "employeeId": "1",
+      "type": "Vacation",
+      "startDate": "2025-06-15",
+      "endDate": "2025-06-19",
+      "days": 5,
+      "status": "Pending",
+      "reason": "Annual family vacation"
+    },
+    {
+      "id": "2",
+      "employeeId": "2",
+      "type": "Sick Leave",
+      "startDate": "2025-06-12",
+      "endDate": "2025-06-13",
+      "days": 2,
+      "status": "Pending",
+      "reason": "Doctor appointment and recovery"
+    }
+  ],
+  "performance_reviews": [
+    {
+      "id": "1",
+      "employeeId": "1",
+      "type": "Mid-Year",
+      "status": "In Progress",
+      "dueDate": "2025-06-15"
+    },
+    {
+      "id": "2",
+      "employeeId": "2",
+      "type": "Quarterly",
+      "status": "Completed",
+      "dueDate": "2025-05-30"
+    }
+  ],
+  "feedback": [
+    {
+      "id": "1",
+      "from": "Jane Doe",
+      "to": "1",
+      "message": "Great job on the client presentation yesterday. Your preparation really showed!",
+      "date": "2025-06-09"
+    },
+    {
+      "id": "2",
+      "from": "Team Supervisor",
+      "to": "1",
+      "message": "I appreciate your initiative in resolving the database issue last week.",
+      "date": "2025-06-05"
+    }
+  ]
+}
