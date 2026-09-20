@@ -1,3 +1,6 @@
+import { Controller } from '@nestjs/common';
+
+@Controller('notifications')
 export class NotificationsController {
-  // Add notification controller logic here
+  // Endpoints are added with the notifications module (Stage B).
 }

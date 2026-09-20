@@ -54,4 +54,3 @@ src/**/*.js
 src/**/*.js.map
 src/**/*.d.ts
 prisma/*.js
-!src/simple-server.js

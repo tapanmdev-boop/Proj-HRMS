@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerOptions } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bull';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -11,43 +14,40 @@ import { PayrollModule } from './payroll/payroll.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AdminModule } from './admin/admin.module';
-import { BullModule } from '@nestjs/bull';
-import { ScheduleModule } from '@nestjs/schedule';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import configuration from './config/configuration';
+import { validationSchema } from './config/validation';
 
 @Module({
   imports: [
-    // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
+      validationSchema,
     }),
-    
-    // Rate limiting
-    ThrottlerModule.forRoot([{
-      ttl: 60, // 1 minute
-      limit: 100, // 100 requests per minute
-    }] as ThrottlerOptions[]),
-    
-    // Queue system with BullMQ
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
+
+    // Rate limiting (ttl is in milliseconds for @nestjs/throttler v5)
+    ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      useFactory: (config: ConfigService) => [
+        { ttl: config.get<number>('throttle.ttl'), limit: config.get<number>('throttle.limit') },
+      ],
+    }),
+
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
         redis: {
-          host: configService.get('REDIS_HOST'),
-          port: configService.get('REDIS_PORT'),
+          host: config.get('redis.host'),
+          port: config.get('redis.port'),
         },
       }),
     }),
-    
-    // Scheduling for recurring tasks
+
     ScheduleModule.forRoot(),
-    
-    // Database with Prisma
     PrismaModule,
-    
-    // Feature modules
+
     AuthModule,
     UsersModule,
     EmployeesModule,
@@ -57,6 +57,12 @@ import configuration from './config/configuration';
     NotificationsModule,
     DocumentsModule,
     AdminModule,
+  ],
+  providers: [
+    // Order matters: throttle first, then authenticate, then authorize by role.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

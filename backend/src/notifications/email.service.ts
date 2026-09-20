@@ -1,13 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as SendGrid from '@sendgrid/mail';
+import SendGrid from '@sendgrid/mail';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
+  private readonly enabled: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    SendGrid.setApiKey(this.configService.get('email.sendgridApiKey'));
+    const apiKey = this.configService.get<string>('email.sendgridApiKey');
+    this.enabled = Boolean(apiKey);
+    if (apiKey) {
+      SendGrid.setApiKey(apiKey);
+    } else {
+      this.logger.warn('SENDGRID_API_KEY is not set; outbound email is disabled');
+    }
   }
 
   async sendEmail(
@@ -16,6 +23,10 @@ export class EmailService {
     text: string,
     html?: string,
   ): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.warn("Email not sent: provider is not configured");
+      return false;
+    }
     const msg = {
       to,
       from: this.configService.get('email.from'),
@@ -39,6 +50,10 @@ export class EmailService {
     templateId: string,
     dynamicTemplateData: any,
   ): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.warn("Email not sent: provider is not configured");
+      return false;
+    }
     const msg = {
       to,
       from: this.configService.get('email.from'),
@@ -65,6 +80,10 @@ export class EmailService {
     leaveType: string,
     reason: string,
   ): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.warn("Email not sent: provider is not configured");
+      return false;
+    }
     const subject = `Leave Request from ${employeeName}`;
     const text = `
       A new leave request has been submitted:
@@ -90,6 +109,10 @@ export class EmailService {
     leaveType: string,
     reason?: string,
   ): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.warn("Email not sent: provider is not configured");
+      return false;
+    }
     const subject = `Leave Request ${status}`;
     const text = `
       Dear ${employeeName},
@@ -114,6 +137,10 @@ export class EmailService {
     year: string,
     downloadLink: string,
   ): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.warn("Email not sent: provider is not configured");
+      return false;
+    }
     const subject = `Your Payslip for ${month} ${year} is Ready`;
     const text = `
       Dear ${employeeName},

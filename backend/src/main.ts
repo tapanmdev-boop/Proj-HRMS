@@ -1,26 +1,27 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-const helmet = require('helmet');
 import { ConfigService } from '@nestjs/config';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
-  // Get config service
-  const configService = app.get(ConfigService);
-  
-  // Global prefix for all routes
+  const config = app.get(ConfigService);
+  const isProduction = config.get<string>('env') === 'production';
+
   app.setGlobalPrefix('api');
-  
-  // CORS configuration
-  app.enableCors();
-  
-  // Helmet for security headers
+  app.enableShutdownHooks();
+
+  // Only the configured browser origins may call the API. Empty list = no cross-origin access.
+  app.enableCors({
+    origin: config.get<string[]>('corsOrigins'),
+    credentials: true,
+  });
+
   app.use(helmet());
-  
-  // Global validation pipe
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -28,30 +29,23 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
-  
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('HRMS API')
-    .setDescription('Human Resource Management System API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('users', 'User management endpoints')
-    .addTag('employees', 'Employee management endpoints')
-    .addTag('attendance', 'Attendance tracking endpoints')
-    .addTag('leave', 'Leave management endpoints')
-    .addTag('payroll', 'Payroll management endpoints')
-    .addTag('documents', 'Document management endpoints')
-    .addTag('notifications', 'Notification endpoints')
-    .addTag('admin', 'Admin dashboard endpoints')
-    .build();
-    
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
-  
-  // Start the server
-  const port = configService.get('PORT') || 3000;
+
+  // API docs are a development aid; never expose them in production.
+  if (!isProduction) {
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('HRMS API')
+        .setDescription('Human Resource Management System API')
+        .setVersion('1.0')
+        .addBearerAuth()
+        .build(),
+    );
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
+  const port = config.get<number>('port');
   await app.listen(port);
-  console.log(`Application is running on port ${port}`);
+  new Logger('Bootstrap').log(`Application is running on port ${port}`);
 }
 bootstrap();

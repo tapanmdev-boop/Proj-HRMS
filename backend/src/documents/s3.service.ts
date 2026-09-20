@@ -7,25 +7,15 @@ export class S3Service {
   private s3: AWS.S3;
 
   constructor(private readonly configService: ConfigService) {
-    const isLocal = configService.get('NODE_ENV') !== 'production';
-    
-    // If using MinIO locally
-    if (isLocal) {
-      this.s3 = new AWS.S3({
-        accessKeyId: 'minioadmin',
-        secretAccessKey: 'minioadmin',
-        endpoint: 'http://localhost:9000',
-        s3ForcePathStyle: true,
-        signatureVersion: 'v4',
-      });
-    } else {
-      // Production AWS S3
-      this.s3 = new AWS.S3({
-        region: configService.get('aws.region'),
-        accessKeyId: configService.get('aws.accessKey'),
-        secretAccessKey: configService.get('aws.secretKey'),
-      });
-    }
+    // Credentials always come from configuration. Set S3_ENDPOINT to use an S3-compatible
+    // store such as MinIO; leave it empty for AWS S3.
+    const endpoint = configService.get<string>('aws.endpoint');
+    this.s3 = new AWS.S3({
+      region: configService.get<string>('aws.region') || 'us-east-1',
+      accessKeyId: configService.get<string>('aws.accessKey'),
+      secretAccessKey: configService.get<string>('aws.secretKey'),
+      ...(endpoint ? { endpoint, s3ForcePathStyle: true, signatureVersion: 'v4' } : {}),
+    });
   }
 
   async uploadFile(

@@ -1,115 +1,138 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { UsersService } from '../users/users.service';
-import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
-import { RegisterDto } from './dto/register.dto';
-import { User } from '../common/types/user.interface';
+import { PrismaService } from '../prisma/prisma.service';
+import { UsersService, SAFE_USER_SELECT } from '../users/users.service';
+import { LoginDto } from './dto/login.dto';
+import { SignupDto } from './dto/signup.dto';
+import { Role } from '../common/types/role.enum';
+
+// Compared against when the account does not exist so response time does not reveal which emails are registered.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
+const INVALID_CREDENTIALS = 'Invalid email or password';
+
+interface SessionUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  tenantId: string;
+}
 
 @Injectable()
 export class AuthService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
-  async validateUser(email: string, password: string, tenantId: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email, tenantId);
-    
-    if (!user) {
-      return null;
+  /** Resolves the organization a login is attempted against. The slug only selects; it never grants access. */
+  async resolveTenantId(slug?: string): Promise<string> {
+    const name = slug || this.config.get<string>('tenant.default');
+    if (!name) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
-    
-    if (!user.password) {
-      throw new UnauthorizedException('Login with OAuth provider');
+    const tenant = await this.prisma.tenant.findUnique({ where: { name }, select: { id: true } });
+    if (!tenant) {
+      // Same message as a bad password: do not reveal which organizations exist.
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
-    
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    
-    if (isPasswordValid) {
-      const { password, ...result } = user;
-      return result;
-    }
-    
-    return null;
+    return tenant.id;
   }
 
-  async login(loginDto: LoginDto, tenantId: string) {
-    const user = await this.usersService.findByEmail(loginDto.email, tenantId);
-    
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('Invalid credentials or inactive account');
+  async login(dto: LoginDto) {
+    const tenantId = await this.resolveTenantId(dto.tenant);
+    const user = await this.usersService.findByEmail(dto.email, tenantId);
+
+    const passwordOk = await bcrypt.compare(dto.password, user?.password ?? DUMMY_HASH);
+    if (!user || !user.password || !passwordOk || !user.isActive) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
-    
-    // Update last login time
+
     await this.usersService.updateLastLogin(user.id);
-    
-    return this.generateToken(user);
+    return this.issueSession(user);
   }
 
-  async register(registerDto: RegisterDto, tenantId: string) {
-    const user = await this.usersService.create(registerDto, tenantId);
-    return this.generateToken(user);
-  }
-
-  async validateOAuthLogin(profile: any, provider: string, tenantId: string) {
-    let user: User;
-    
-    // Find user by provider ID
-    if (provider === 'google') {
-      user = await this.usersService.findByGoogleId(profile.id, tenantId);
-    } else if (provider === 'microsoft') {
-      user = await this.usersService.findByMicrosoftId(profile.id, tenantId);
+  /** Creates a new organization together with its first administrator, atomically. */
+  async signup(dto: SignupDto) {
+    if (!this.config.get<boolean>('signupEnabled')) {
+      throw new ForbiddenException('Self-service organization sign-up is disabled');
     }
-    
-    // If user doesn't exist, check by email
-    if (!user) {
-      user = await this.usersService.findByEmail(profile.emails[0].value, tenantId);
-      
-      // If user exists by email, update with provider ID
+
+    const existing = await this.prisma.tenant.findUnique({ where: { name: dto.organizationSlug }, select: { id: true } });
+    if (existing) {
+      throw new ConflictException('That organization slug is already taken');
+    }
+
+    const password = await this.usersService.hashPassword(dto.password);
+    const user = await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: { name: dto.organizationSlug, displayName: dto.organizationName.trim() },
+      });
+      return tx.user.create({
+        data: {
+          email: dto.email.trim().toLowerCase(),
+          password,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          role: Role.ADMIN,
+          tenantId: tenant.id,
+        },
+        select: SAFE_USER_SELECT,
+      });
+    });
+
+    return this.issueSession(user);
+  }
+
+  /**
+   * OAuth sign-in for existing users only. Accounts are never auto-created, and an existing
+   * account is linked by email only when the provider asserts the email is verified.
+   */
+  async validateOAuthLogin(
+    provider: 'google' | 'microsoft',
+    providerId: string,
+    email: string | undefined,
+    emailVerified: boolean,
+  ) {
+    const tenantId = await this.resolveTenantId();
+
+    let user =
+      provider === 'google'
+        ? await this.usersService.findByGoogleId(providerId, tenantId)
+        : await this.usersService.findByMicrosoftId(providerId, tenantId);
+
+    if (!user && email && emailVerified) {
+      user = await this.usersService.findByEmail(email, tenantId);
       if (user) {
-        if (provider === 'google') {
-          await this.usersService.update(user.id, { googleId: profile.id });
-        } else if (provider === 'microsoft') {
-          await this.usersService.update(user.id, { microsoftId: profile.id });
-        }
-      } else {
-        // Create a new user
-        const newUser = {
-          email: profile.emails[0].value,
-          firstName: profile.name.givenName,
-          lastName: profile.name.familyName,
-          ...(provider === 'google' ? { googleId: profile.id } : {}),
-          ...(provider === 'microsoft' ? { microsoftId: profile.id } : {}),
-          role: 'EMPLOYEE',
-        };
-        
-        user = await this.usersService.createOAuthUser(newUser, tenantId);
+        await this.usersService.linkProvider(user.id, provider, providerId);
       }
     }
-    
-    // Update last login time
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('No active account is linked to this sign-in');
+    }
+
     await this.usersService.updateLastLogin(user.id);
-    
-    return this.generateToken(user);
+    return this.issueSession(user);
   }
 
-  private generateToken(user: User) {
-    const payload = { 
-      sub: user.id, 
-      email: user.email, 
-      role: user.role,
-      tenantId: user.tenantId,
-    };
-    
+  private issueSession(user: SessionUser) {
+    // The token carries identity only; role and tenant are re-read from the database on every request.
+    const accessToken = this.jwtService.sign({ sub: user.id, tenantId: user.tenantId });
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken,
       user: {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        tenantId: user.tenantId,
       },
     };
   }

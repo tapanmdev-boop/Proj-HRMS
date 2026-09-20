@@ -1,59 +1,56 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { AuthGuard } from '@nestjs/passport';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { ListUsersDto } from './dto/list-users.dto';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/types/role.enum';
-import { TenantDecorator } from '../common/decorators/tenant.decorator';
+import { AuthUser } from '../common/types/auth-user.interface';
 
+// Authentication and role checks are applied globally (see AppModule); every query is scoped
+// to the tenant of the authenticated user.
 @ApiTags('users')
-@Controller('users')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
 @ApiBearerAuth()
+@Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
   @Roles(Role.ADMIN, Role.HR)
-  @ApiOperation({ summary: 'Create new user (Admin & HR only)' })
-  @ApiResponse({ status: 201, description: 'The user has been successfully created.' })
-  @ApiResponse({ status: 403, description: 'Forbidden.' })
-  create(@Body() createUserDto: CreateUserDto, @TenantDecorator() tenantId: string) {
-    return this.usersService.create(createUserDto, tenantId);
+  @ApiOperation({ summary: 'Create a user in your organization (Admin, HR)' })
+  @ApiResponse({ status: 201, description: 'User created' })
+  create(@Body() dto: CreateUserDto, @CurrentUser() actor: AuthUser) {
+    return this.usersService.create(dto, actor);
   }
 
   @Get()
   @Roles(Role.ADMIN, Role.HR)
-  @ApiOperation({ summary: 'Get all users (Admin & HR only)' })
-  @ApiResponse({ status: 200, description: 'Return all users' })
-  findAll(@TenantDecorator() tenantId: string) {
-    return this.usersService.findAll(tenantId);
+  @ApiOperation({ summary: 'List users in your organization (Admin, HR)' })
+  findAll(@Query() query: ListUsersDto, @CurrentUser() actor: AuthUser) {
+    return this.usersService.findAll(actor.tenantId, query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
-  @ApiResponse({ status: 200, description: 'Return the user' })
-  @ApiResponse({ status: 404, description: 'User not found' })
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  @Roles(Role.ADMIN, Role.HR)
+  @ApiOperation({ summary: 'Get a user by id (Admin, HR)' })
+  @ApiResponse({ status: 404, description: 'User not found in your organization' })
+  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUser) {
+    return this.usersService.findOne(id, actor.tenantId);
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN, Role.HR)
-  @ApiOperation({ summary: 'Update user (Admin & HR only)' })
-  @ApiResponse({ status: 200, description: 'The user has been successfully updated.' })
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  @ApiOperation({ summary: 'Update a user (Admin, HR; only Admin may manage admins)' })
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto, @CurrentUser() actor: AuthUser) {
+    return this.usersService.update(id, dto, actor);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Delete user (Admin only)' })
-  @ApiResponse({ status: 200, description: 'The user has been successfully deleted.' })
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  @ApiOperation({ summary: 'Delete a user (Admin)' })
+  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUser) {
+    return this.usersService.remove(id, actor);
   }
 }

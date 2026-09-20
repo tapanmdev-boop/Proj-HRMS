@@ -1,3 +1,6 @@
+import { Processor } from '@nestjs/bull';
+
+@Processor('notifications')
 export class NotificationsProcessor {
-  // Add notification processor logic here
+  // Queue handlers are added with the notifications module (Stage B).
 }

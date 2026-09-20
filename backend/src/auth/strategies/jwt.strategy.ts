@@ -1,32 +1,37 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../../users/users.service';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AuthUser } from '../../common/types/auth-user.interface';
+import { Role } from '../../common/types/role.enum';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private readonly configService: ConfigService,
-    private readonly usersService: UsersService,
+    config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('jwt.secret'),
+      secretOrKey: config.get<string>('jwt.secret'),
+      algorithms: ['HS256'],
     });
   }
 
-  async validate(payload: any) {
-    const user = await this.usersService.findOne(payload.sub);
-    
-    return {
-      id: payload.sub,
-      email: payload.email,
-      role: payload.role,
-      tenantId: payload.tenantId,
-      firstName: user.firstName,
-      lastName: user.lastName,
-    };
+  /**
+   * Role, tenant and active state are read from the database on every request, so a demoted,
+   * deactivated or deleted user loses access immediately instead of when the token expires.
+   */
+  async validate(payload: { sub: string; tenantId: string }): Promise<AuthUser> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: payload.sub, tenantId: payload.tenantId, isActive: true },
+      select: { id: true, email: true, role: true, tenantId: true, firstName: true, lastName: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    return { ...user, role: user.role as Role };
   }
 }
