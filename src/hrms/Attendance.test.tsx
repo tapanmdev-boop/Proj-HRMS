@@ -157,7 +157,8 @@ describe('Attendance page', () => {
         const path = new URL(input).pathname.replace(/^\/api/, '');
         if (path === '/attendance/clock-in' && init.method === 'POST') return json(409, { message: 'You are already clocked in. Clock out first.' });
         if (path === '/attendance/today') return json(200, baseToday({ clockedIn: true, record: record({ open: true, clockOut: null, workedMinutes: null }) }));
-        return json(200, { items: [], total: 0, page: 1, pageSize: 10, from: '2026-02-01', to: '2026-03-02', ...summary });
+        // Shape-compatible with both the list and summary endpoints.
+        return json(200, { ...summary, items: [], total: 0, page: 1, pageSize: 10 });
       }));
       await user.click(screen.getByRole('button', { name: 'Clock in' }));
       expect(await screen.findByText('Clock out', { selector: 'button' })).toBeInTheDocument(); // refreshed to the true state
