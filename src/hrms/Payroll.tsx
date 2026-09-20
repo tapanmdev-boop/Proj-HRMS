@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppSelector } from '../store/hooks';
-import { selectCurrentUser } from '../auth/authSlice';
+import { selectCurrentUser, selectTenant } from '../auth/authSlice';
+import { useFormat } from '../i18n/format';
+import { packFor } from '../compliance/packs';
 import { Button } from '../components/ui/Form';
-import { generateWpsSif } from '../utils/wpsFile';
+import { generateWpsSif } from '../compliance/ae/wps';
 
-// Demo employer WPS identifiers. A real deployment would pull these from the
-// tenant's own settings (MOHRE establishment registration + bank onboarding
-// pack), not hardcode them.
+// Sample data only: this screen is not yet connected to a payroll engine.
+// Demo employer identifiers for the UAE WPS export (offered only when the organization's
+// jurisdiction pack provides it). A real deployment reads these from tenant settings.
 const MOCK_EMPLOYER = {
   establishmentId: 'EST-778899',
   wpsAgentId: 'AGENT-4521',
@@ -197,7 +199,7 @@ function downloadTextFile(fileName: string, content: string) {
 // A plain-text payslip download — this is a minimal, real client-side
 // action so the button isn't a dead stub. Phase 1c (real backend) replaces
 // this with a proper PDF generated server-side from actual payroll data.
-function downloadPayslipText(payslip: typeof MOCK_PAYSLIP_DETAILS) {
+function downloadPayslipText(payslip: typeof MOCK_PAYSLIP_DETAILS, money: (amount: number) => string) {
   const lines = [
     `Payslip — ${payslip.period}`,
     `Employee: ${payslip.employeeName} (${payslip.employeeId})`,
@@ -205,14 +207,14 @@ function downloadPayslipText(payslip: typeof MOCK_PAYSLIP_DETAILS) {
     `Pay Date: ${payslip.payDate}`,
     '',
     'Earnings:',
-    ...payslip.earnings.map(e => `  ${e.label}: AED ${e.amount.toLocaleString()}`),
-    `  Total Earnings: AED ${payslip.totalEarnings.toLocaleString()}`,
+    ...payslip.earnings.map(e => `  ${e.label}: ${money(e.amount)}`),
+    `  Total Earnings: ${money(payslip.totalEarnings)}`,
     '',
     'Deductions:',
-    ...payslip.deductions.map(d => `  ${d.label}: AED ${d.amount.toLocaleString()}`),
-    `  Total Deductions: AED ${payslip.totalDeductions.toLocaleString()}`,
+    ...payslip.deductions.map(d => `  ${d.label}: ${money(d.amount)}`),
+    `  Total Deductions: ${money(payslip.totalDeductions)}`,
     '',
-    `Net Pay: AED ${payslip.netPay.toLocaleString()}`,
+    `Net Pay: ${money(payslip.netPay)}`,
   ];
   downloadTextFile(`payslip-${payslip.period.replace(/\s+/g, '-').toLowerCase()}.txt`, lines.join('\n'));
 }
@@ -220,6 +222,8 @@ function downloadPayslipText(payslip: typeof MOCK_PAYSLIP_DETAILS) {
 export default function Payroll() {
   const [searchParams] = useSearchParams();
   const currentUser = useAppSelector(selectCurrentUser);
+  const fmt = useFormat();
+  const pack = packFor(useAppSelector(selectTenant)?.countryCode);
   const isHRorAdmin = currentUser?.role === 'hr' || currentUser?.role === 'admin';
   // The Dashboard's "Run Payroll" button links here with ?tab=run-payroll
   // (there's no separate /hrms/payroll/run route — it never existed).
@@ -254,6 +258,9 @@ export default function Payroll() {
 
   return (
     <div className="space-y-6">
+      <div role="note" className="rounded-lg border border-gold-300 bg-gold-50 px-4 py-2.5 text-[13px] text-ink-800">
+        Sample data. Payroll is not yet connected to a payroll engine, so the figures below are illustrations, not your organization's records.
+      </div>
       <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-sm p-6">
         <div className="flex flex-col md:flex-row justify-between mb-6">
           <h2 className="font-display text-[26px] font-medium leading-tight tracking-[-0.02em] text-ink-900 mb-4 md:mb-0">Payroll Management</h2>
@@ -299,10 +306,10 @@ export default function Payroll() {
                         {new Date(payroll.payDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        AED {payroll.grossPay.toLocaleString()}
+                        {fmt.money(payroll.grossPay)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        AED {payroll.netPay.toLocaleString()}
+                        {fmt.money(payroll.netPay)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
@@ -368,7 +375,7 @@ export default function Payroll() {
                         {employee.position}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        AED {totalMonthlyPay(employee).toLocaleString()}
+                        {fmt.money(totalMonthlyPay(employee))}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -399,11 +406,11 @@ export default function Payroll() {
                     <p><span className="font-semibold">Name:</span> {detailsEmployee.name}</p>
                     <p><span className="font-semibold">Position:</span> {detailsEmployee.position}</p>
                     <p><span className="font-semibold">Department:</span> {detailsEmployee.department}</p>
-                    <p><span className="font-semibold">Basic Salary:</span> AED {detailsEmployee.basicSalary.toLocaleString()}</p>
-                    <p><span className="font-semibold">Housing Allowance:</span> AED {detailsEmployee.housingAllowance.toLocaleString()}</p>
-                    <p><span className="font-semibold">Transport Allowance:</span> AED {detailsEmployee.transportAllowance.toLocaleString()}</p>
-                    <p><span className="font-semibold">Other Allowances:</span> AED {detailsEmployee.otherAllowances.toLocaleString()}</p>
-                    <p><span className="font-semibold">Total Monthly Pay:</span> AED {totalMonthlyPay(detailsEmployee).toLocaleString()}</p>
+                    <p><span className="font-semibold">Basic Salary:</span> {fmt.money(detailsEmployee.basicSalary)}</p>
+                    <p><span className="font-semibold">Housing Allowance:</span> {fmt.money(detailsEmployee.housingAllowance)}</p>
+                    <p><span className="font-semibold">Transport Allowance:</span> {fmt.money(detailsEmployee.transportAllowance)}</p>
+                    <p><span className="font-semibold">Other Allowances:</span> {fmt.money(detailsEmployee.otherAllowances)}</p>
+                    <p><span className="font-semibold">Total Monthly Pay:</span> {fmt.money(totalMonthlyPay(detailsEmployee))}</p>
                     <p><span className="font-semibold">Labour Card:</span> {detailsEmployee.laborCardNumber}</p>
                     <p><span className="font-semibold">IBAN:</span> {detailsEmployee.iban}</p>
                     <p><span className="font-semibold">Payment Status:</span> {detailsEmployee.paymentStatus}</p>
@@ -422,7 +429,7 @@ export default function Payroll() {
         {activeTab === 'payslip' && selectedPayslip && (
           <div className="space-y-6">
             <div className="text-right mb-4">
-              <Button variant="outline" onClick={() => downloadPayslipText(payslipForView)}>
+              <Button variant="outline" onClick={() => downloadPayslipText(payslipForView, fmt.money)}>
                 Download PDF
               </Button>
             </div>
@@ -454,12 +461,12 @@ export default function Payroll() {
                   <tbody className="bg-white divide-y divide-gray-200">                    {payslipForView.earnings.map((item) => (
                       <tr key={`earning-${item.label}`} className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-sm text-gray-900">{item.label}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {item.amount.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-900 text-right">{fmt.money(item.amount)}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-50 font-medium">
                       <td className="px-4 py-2 text-sm text-gray-900">Total Earnings</td>
-                      <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {payslipForView.totalEarnings.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 text-right">{fmt.money(payslipForView.totalEarnings)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -477,12 +484,12 @@ export default function Payroll() {
                   <tbody className="bg-white divide-y divide-gray-200">                    {payslipForView.deductions.map((item) => (
                       <tr key={`deduction-${item.label}`} className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-sm text-gray-900">{item.label}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {item.amount.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-900 text-right">{fmt.money(item.amount)}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-50 font-medium">
                       <td className="px-4 py-2 text-sm text-gray-900">Total Deductions</td>
-                      <td className="px-4 py-2 text-sm text-gray-900 text-right">AED {payslipForView.totalDeductions.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900 text-right">{fmt.money(payslipForView.totalDeductions)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -493,9 +500,9 @@ export default function Payroll() {
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">Net Pay</h3>
-                <p className="text-2xl font-bold text-indigo-600">AED {payslipForView.netPay.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-indigo-600">{fmt.money(payslipForView.netPay)}</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1">Paid via WPS to {payslipForView.iban}</p>
+              <p className="text-sm text-gray-500 mt-1">Paid by bank transfer to {payslipForView.iban}</p>
             </div>
           </div>
         )}
@@ -563,12 +570,14 @@ export default function Payroll() {
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Total Gross Pay</p>
-                        <p className="text-xl font-medium text-gray-900 mt-1">AED {totalGross.toLocaleString()}</p>
+                        <p className="text-xl font-medium text-gray-900 mt-1">{fmt.money(totalGross)}</p>
                       </div>
+                      {pack.payrollExport?.id === 'wps_sif' && (
                       <div>
                         <p className="text-sm text-gray-500">Employer WPS ID</p>
                         <p className="text-xl font-medium text-gray-900 mt-1">{MOCK_EMPLOYER.establishmentId}</p>
                       </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -589,6 +598,7 @@ export default function Payroll() {
                 >
                   Preview
                 </Button>
+                {pack.payrollExport?.id === 'wps_sif' && (
                 <Button
                   variant="secondary"
                   type="button"
@@ -610,8 +620,9 @@ export default function Payroll() {
                     setRunPayrollResult(`WPS file "${fileName}" generated for ${MOCK_EMPLOYEES_PAYROLL.length} employees. Validate the field layout against your bank's WPS template before submitting it.`);
                   }}
                 >
-                  Generate WPS File
+                  Generate {pack.payrollExport?.label ?? 'export file'}
                 </Button>
+                )}
                 <Button
                   variant="primary"
                   type="button"

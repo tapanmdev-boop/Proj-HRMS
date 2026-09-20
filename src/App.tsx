@@ -1,7 +1,8 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './store';
+import { restoreSession } from './auth/authSlice';
 import './App.css';
 
 // Components
@@ -9,6 +10,7 @@ const MainLayout = lazy(() => import('./components/layout/MainLayout'));
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'));
 const Unauthorized = lazy(() => import('./components/auth/Unauthorized'));
 const Login = lazy(() => import('./auth/Login'));
+const SignUp = lazy(() => import('./auth/SignUp'));
 const Pricing = lazy(() => import('./marketing/Pricing'));
 
 // Module routes
@@ -16,9 +18,18 @@ const RecruitmentRoutes = lazy(() => import('./recruitment/routes'));
 const HrmsRoutes = lazy(() => import('./hrms/routes'));
 const PerformanceRoutes = lazy(() => import('./performance/routes'));
 
+/** Turns a stored refresh token back into a live session once, at start-up. */
+function SessionBootstrap() {
+  useEffect(() => {
+    void store.dispatch(restoreSession());
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <Provider store={store}>
+      <SessionBootstrap />
       {/* basename mirrors Vite's `base` (vite.config.ts) so the app works when
           served from a subdirectory, e.g. /__-portfolio/hrms/ */}
       <Router basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
@@ -33,6 +44,7 @@ function App() {
             {/* Auth routes */}
             <Route path="/auth">
               <Route path="login" element={<Login />} />
+              <Route path="signup" element={<SignUp />} />
             </Route>
 
             {/* Public marketing page — no auth, no MainLayout chrome. */}
@@ -43,12 +55,9 @@ function App() {
                 for it, so the redirect silently fell through to "*"). */}
             <Route path="/unauthorized" element={<Unauthorized />} />
 
-            {/* Protected routes. allowedRoles is intentionally the full set
-                here — coarse route-level access is "any logged-in employee",
-                finer per-action gating (who can Edit/Delete/Approve) happens
-                inside each page. Tighten per-module here if a whole module
-                should ever become role-restricted at the route level. */}
-            <Route element={<ProtectedRoute allowedRoles={['admin', 'hr', 'manager', 'employee']} />}>
+            {/* Protected routes. ProtectedRoute waits for session restore and applies the role
+                rules declared in components/layout/navigation.ts; the API enforces them again. */}
+            <Route element={<ProtectedRoute />}>
               <Route element={<MainLayout />}>
                 <Route path="/hrms/*" element={<HrmsRoutes />} />
                 <Route path="/recruitment/*" element={<RecruitmentRoutes />} />

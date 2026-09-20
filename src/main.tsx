@@ -6,8 +6,8 @@ import App from './App.tsx'
 
 // Initialize MSW mock service worker in development
 async function prepare() {
-  // Only use MSW if in development AND USE_MOCKS is not set to 'false'
-  const useMocks = import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS !== 'false'
+  // MSW is opt-in (VITE_USE_MOCKS=true). Screens talk to the real API by default.
+  const useMocks = import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS === 'true'
   
   if (useMocks) {
     console.log('[App] Using mock API endpoints')

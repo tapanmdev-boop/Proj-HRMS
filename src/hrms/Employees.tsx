@@ -1,464 +1,430 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Button } from '../components/ui/Form';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Input, Select } from '../components/ui/Form';
+import { Modal } from '../components/ui/Modal';
 import { useAppSelector } from '../store/hooks';
-import { selectCurrentUser } from '../auth/authSlice';
+import { selectCurrentUser, selectTenant } from '../auth/authSlice';
+import { ApiError } from '../api/http';
+import { departmentsApi, employeesApi } from '../api/endpoints';
+import type { Department, Employee, Page } from '../api/types';
+import { useFormat } from '../i18n/format';
+import { currencyOptions } from '../i18n/regions';
+import { identifierWarning, packFor } from '../compliance/packs';
+import {
+  emptyForm, employeesToCsv, formFromEmployee, toCreateInput, toUpdateInput, validateForm, type EmployeeFormState,
+} from './employeeForm';
 
-// Component for displaying employee status with appropriate styling
-const EmployeeStatusBadge = ({ status }: { status: string }) => {
-  // Helper function to determine badge color class based on status
-  const getStatusColorClass = (statusValue: string): string => {
-    if (statusValue === 'Active') return 'bg-green-100 text-green-800';
-    if (statusValue === 'On Leave') return 'bg-yellow-100 text-yellow-800';
-    return 'bg-gray-100 text-gray-800';
-  };
+const PAGE_SIZE = 10;
 
+const errorText = (error: unknown) => (error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+const initialsOf = (e: Pick<Employee, 'firstName' | 'lastName'>) => `${e.firstName[0] ?? ''}${e.lastName[0] ?? ''}`.toUpperCase();
+
+function StatusBadge({ status }: Readonly<{ status: Employee['status'] }>) {
+  const active = status === 'ACTIVE';
   return (
-    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColorClass(status)}`}>
-      {status}
+    <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+      {active ? 'Active' : 'Terminated'}
     </span>
   );
-};
+}
 
-// Mock employee data. Fields below `joinDate` are UAE-specific — the
-// UI/data-model groundwork for the Phase 1c payroll engine (basic salary +
-// allowance breakdown feeds gratuity calculations and payslips; Emirates
-// ID/labour card/IBAN feed WPS file generation). No backend consumes these
-// yet; they're stored and edited locally like everything else on this page.
-const MOCK_EMPLOYEES = [
-  {
-    id: '1',
-    name: 'John Smith',
-    email: 'john.smith@company.com',
-    position: 'Senior Developer',
-    department: 'Engineering',
-    status: 'Active',
-    joinDate: '2023-01-15',
-    avatar: 'JS',
-    emiratesId: '784-1990-1234567-1',
-    laborCardNumber: 'LC-100234',
-    iban: 'AE070331234567890123456',
-    basicSalary: 12000,
-    housingAllowance: 4000,
-    transportAllowance: 1000,
-    otherAllowances: 500,
-  },
-  {
-    id: '2',
-    name: 'Maria Garcia',
-    email: 'maria.garcia@company.com',
-    position: 'UX Designer',
-    department: 'Design',
-    status: 'Active',
-    joinDate: '2022-11-03',
-    avatar: 'MG',
-    emiratesId: '784-1988-2345678-2',
-    laborCardNumber: 'LC-100235',
-    iban: 'AE070331234567890123457',
-    basicSalary: 10000,
-    housingAllowance: 3500,
-    transportAllowance: 1000,
-    otherAllowances: 300,
-  },
-  {
-    id: '3',
-    name: 'David Johnson',
-    email: 'david.johnson@company.com',
-    position: 'Product Manager',
-    department: 'Product',
-    status: 'Active',
-    joinDate: '2021-06-22',
-    avatar: 'DJ',
-    emiratesId: '784-1985-3456789-3',
-    laborCardNumber: 'LC-100236',
-    iban: 'AE070331234567890123458',
-    basicSalary: 16000,
-    housingAllowance: 5000,
-    transportAllowance: 1200,
-    otherAllowances: 800,
-  },
-  {
-    id: '4',
-    name: 'Linda Chen',
-    email: 'linda.chen@company.com',
-    position: 'Marketing Specialist',
-    department: 'Marketing',
-    status: 'On Leave',
-    joinDate: '2022-03-10',
-    avatar: 'LC',
-    emiratesId: '784-1992-4567890-4',
-    laborCardNumber: 'LC-100237',
-    iban: 'AE070331234567890123459',
-    basicSalary: 9000,
-    housingAllowance: 3000,
-    transportAllowance: 800,
-    otherAllowances: 200,
-  },
-  {
-    id: '5',
-    name: 'Robert Wilson',
-    email: 'robert.wilson@company.com',
-    position: 'HR Manager',
-    department: 'Human Resources',
-    status: 'Active',
-    joinDate: '2020-09-15',
-    avatar: 'RW',
-    emiratesId: '784-1983-5678901-5',
-    laborCardNumber: 'LC-100238',
-    iban: 'AE070331234567890123460',
-    basicSalary: 14000,
-    housingAllowance: 4500,
-    transportAllowance: 1000,
-    otherAllowances: 600,
-  },
-  {
-    id: '6',
-    name: 'Sarah Thompson',
-    email: 'sarah.thompson@company.com',
-    position: 'Financial Analyst',
-    department: 'Finance',
-    status: 'Active',
-    joinDate: '2022-08-04',
-    avatar: 'ST',
-    emiratesId: '784-1991-6789012-6',
-    laborCardNumber: 'LC-100239',
-    iban: 'AE070331234567890123461',
-    basicSalary: 11000,
-    housingAllowance: 3800,
-    transportAllowance: 1000,
-    otherAllowances: 400,
-  },
-  {
-    id: '7',
-    name: 'James Brown',
-    email: 'james.brown@company.com',
-    position: 'DevOps Engineer',
-    department: 'Engineering',
-    status: 'Active',
-    joinDate: '2023-02-01',
-    avatar: 'JB',
-    emiratesId: '784-1989-7890123-7',
-    laborCardNumber: 'LC-100240',
-    iban: 'AE070331234567890123462',
-    basicSalary: 12500,
-    housingAllowance: 4000,
-    transportAllowance: 1000,
-    otherAllowances: 500,
-  },
-  {
-    id: '8',
-    name: 'Emily Davis',
-    email: 'emily.davis@company.com',
-    position: 'Customer Success Rep',
-    department: 'Customer Support',
-    status: 'On Leave',
-    joinDate: '2021-11-08',
-    avatar: 'ED',
-    emiratesId: '784-1993-8901234-8',
-    laborCardNumber: 'LC-100241',
-    iban: 'AE070331234567890123463',
-    basicSalary: 8500,
-    housingAllowance: 2800,
-    transportAllowance: 800,
-    otherAllowances: 200,
-  }
-];
-
-const PAGE_SIZE = 5;
-
-const emptyEmployeeForm = {
-  name: '', email: '', position: '', department: '', status: 'Active', joinDate: '',
-  emiratesId: '', laborCardNumber: '', iban: '',
-  basicSalary: '', housingAllowance: '', transportAllowance: '', otherAllowances: '',
-};
-
-function exportToCSV(data: any[], filename: string) {
-  if (!data.length) return;
-  const csvRows = [
-    Object.keys(data[0]).join(','),
-    ...data.map(row => Object.values(row).map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-  ];
-  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
+function download(filename: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   a.click();
-  window.URL.revokeObjectURL(url);
+  URL.revokeObjectURL(url);
 }
 
-// Shared UAE payroll-info fields, used by both the Add and Edit modals.
-function PayrollInfoFields({ value, onChange }: { value: any; onChange: (next: any) => void }) {
+interface FormProps {
+  mode: 'create' | 'edit';
+  value: EmployeeFormState;
+  onChange: (next: EmployeeFormState) => void;
+  departments: Department[];
+  managers: Employee[];
+  editingId?: string;
+  countryCode: string | null | undefined;
+}
+
+/** Shared by the Add and Edit dialogs. Country-specific fields come from the organization's jurisdiction pack. */
+function EmployeeFields({ mode, value, onChange, departments, managers, editingId, countryCode }: Readonly<FormProps>) {
+  const pack = packFor(countryCode);
+  const currencies = useMemo(() => currencyOptions(), []);
+  const set = <K extends keyof EmployeeFormState>(key: K, v: EmployeeFormState[K]) => onChange({ ...value, [key]: v });
+
   return (
-    <div className="border-t pt-3 mt-1 space-y-3">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">UAE Compliance & Payroll Info</p>
-      <input
-        className="w-full border rounded px-3 py-2"
-        placeholder="Emirates ID (784-YYYY-XXXXXXX-X)"
-        value={value.emiratesId}
-        onChange={e => onChange({ ...value, emiratesId: e.target.value })}
+    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+      <Input id="firstName" label="First name" value={value.firstName} onChange={(e) => set('firstName', e.target.value)} maxLength={100} required />
+      <Input id="lastName" label="Last name" value={value.lastName} onChange={(e) => set('lastName', e.target.value)} maxLength={100} required />
+      {mode === 'create' && (
+        <>
+          <Input id="email" type="email" label="Work email" value={value.email} onChange={(e) => set('email', e.target.value)} autoComplete="off" required />
+          <Input id="password" type="password" label="Initial password" helperText="At least 8 characters. Share it securely." value={value.password} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" required />
+          <Select
+            id="role"
+            label="Access level"
+            value={value.role}
+            onChange={(e) => set('role', e.target.value as EmployeeFormState['role'])}
+            options={[{ value: 'EMPLOYEE', label: 'Employee' }, { value: 'MANAGER', label: 'Manager' }, { value: 'HR', label: 'People Ops (HR)' }]}
+          />
+        </>
+      )}
+      <Input id="position" label="Position" value={value.position} onChange={(e) => set('position', e.target.value)} maxLength={120} required />
+      <Select
+        id="departmentId"
+        label="Department"
+        value={value.departmentId}
+        onChange={(e) => set('departmentId', e.target.value)}
+        options={[{ value: '', label: 'No department' }, ...departments.map((d) => ({ value: d.id, label: d.name }))]}
       />
-      <div className="grid grid-cols-2 gap-3">
-        <input
-          className="border rounded px-3 py-2"
-          placeholder="Labour Card No."
-          value={value.laborCardNumber}
-          onChange={e => onChange({ ...value, laborCardNumber: e.target.value })}
-        />
-        <input
-          className="border rounded px-3 py-2"
-          placeholder="IBAN"
-          value={value.iban}
-          onChange={e => onChange({ ...value, iban: e.target.value })}
-        />
+      <Select
+        id="managerId"
+        label="Manager"
+        value={value.managerId}
+        onChange={(e) => set('managerId', e.target.value)}
+        options={[
+          { value: '', label: 'No manager' },
+          ...managers.filter((m) => m.id !== editingId).map((m) => ({ value: m.id, label: `${m.firstName} ${m.lastName}` })),
+        ]}
+      />
+      <Input id="joinDate" type="date" label="Join date" value={value.joinDate} onChange={(e) => set('joinDate', e.target.value)} required />
+
+      <div className="col-span-full mt-1 border-t border-ivory-300 pt-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Pay</p>
+        <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+          <Input id="salary" inputMode="decimal" label="Base pay (per pay period)" placeholder="0.00" value={value.salary} onChange={(e) => set('salary', e.target.value)} required />
+          <Select id="currency" label="Currency" value={value.currency} onChange={(e) => set('currency', e.target.value)} options={currencies} />
+          {pack.commonAllowances.map((a) => (
+            <Input
+              key={a.code}
+              id={`allowance-${a.code}`}
+              inputMode="decimal"
+              label={`${a.label} allowance`}
+              placeholder="0.00"
+              value={value.allowances[a.code] ?? ''}
+              onChange={(e) => set('allowances', { ...value.allowances, [a.code]: e.target.value })}
+            />
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Basic Salary (AED/mo)</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            type="number"
-            value={value.basicSalary}
-            onChange={e => onChange({ ...value, basicSalary: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Housing Allowance</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            type="number"
-            value={value.housingAllowance}
-            onChange={e => onChange({ ...value, housingAllowance: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Transport Allowance</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            type="number"
-            value={value.transportAllowance}
-            onChange={e => onChange({ ...value, transportAllowance: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Other Allowances</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            type="number"
-            value={value.otherAllowances}
-            onChange={e => onChange({ ...value, otherAllowances: e.target.value })}
-          />
+
+      <div className="col-span-full mt-1 border-t border-ivory-300 pt-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Identity & banking ({pack.name})</p>
+        <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+          {pack.identifiers.map((field) => {
+            const current = value.identifiers[field.key] ?? '';
+            return (
+              <Input
+                key={field.key}
+                id={`identifier-${field.key}`}
+                label={field.label}
+                placeholder={field.placeholder}
+                value={current}
+                maxLength={64}
+                autoComplete="off"
+                helperText={identifierWarning(field, current) ? `Check the format: ${identifierWarning(field, current)}` : undefined}
+                onChange={(e) => set('identifiers', { ...value.identifiers, [field.key]: e.target.value })}
+              />
+            );
+          })}
+          <Input id="bankAccount" label="Bank account / IBAN" value={value.bankAccount} maxLength={64} autoComplete="off" onChange={(e) => set('bankAccount', e.target.value)} />
+          <Input id="phoneNumber" type="tel" label="Phone" value={value.phoneNumber} maxLength={40} onChange={(e) => set('phoneNumber', e.target.value)} />
         </div>
       </div>
     </div>
   );
 }
 
+function Detail({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
+  return (
+    <div className="flex justify-between gap-4 border-b border-ivory-200 py-2 text-sm last:border-0">
+      <dt className="text-gray-500">{label}</dt>
+      <dd className="text-right font-medium text-ink-900">{children}</dd>
+    </div>
+  );
+}
+
 export default function Employees() {
   const currentUser = useAppSelector(selectCurrentUser);
-  // Only Admin/HR can create, edit, delete employee records; everyone else
-  // (manager/employee) gets a read-only directory + Preview.
-  const canManageEmployees = currentUser?.role === 'admin' || currentUser?.role === 'hr';
+  const tenant = useAppSelector(selectTenant);
+  const fmt = useFormat();
+  const pack = packFor(tenant?.countryCode);
+  // Only Admin/HR can create, edit or end employment; everyone else gets the read-only directory.
+  // The API enforces this independently.
+  const canManage = currentUser?.role === 'admin' || currentUser?.role === 'hr';
 
-  // The real, mutable dataset. Previously the filter effect below re-derived
-  // from the MOCK_EMPLOYEES constant instead of this state, which silently
-  // wiped out any Add/Edit/Delete the moment a search/filter changed.
-  const [allEmployees, setAllEmployees] = useState(MOCK_EMPLOYEES);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterDepartment, setFilterDepartment] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [status, setStatus] = useState<'' | 'ACTIVE' | 'TERMINATED'>('');
   const [page, setPage] = useState(1);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
-  const [newEmployee, setNewEmployee] = useState(emptyEmployeeForm);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const departments = useMemo(() => [...new Set(allEmployees.map(emp => emp.department))], [allEmployees]);
-  const statuses = useMemo(() => [...new Set(allEmployees.map(emp => emp.status))], [allEmployees]);
+  const [data, setData] = useState<Page<Employee> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [managers, setManagers] = useState<Employee[]>([]);
 
-  // Derived, filtered view of the real dataset — never mutates allEmployees.
-  const employees = useMemo(() => {
-    let filtered = allEmployees;
+  const [dialog, setDialog] = useState<'add' | 'edit' | 'preview' | 'terminate' | 'department' | null>(null);
+  const [selected, setSelected] = useState<Employee | null>(null);
+  const [form, setForm] = useState<EmployeeFormState>(emptyForm(tenant?.baseCurrency ?? 'USD'));
+  const [terminationDate, setTerminationDate] = useState('');
+  const [newDepartment, setNewDepartment] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(emp =>
-        emp.name.toLowerCase().includes(term) ||
-        emp.email.toLowerCase().includes(term) ||
-        emp.position.toLowerCase().includes(term)
-      );
-    }
-
-    if (filterDepartment) {
-      filtered = filtered.filter(emp => emp.department === filterDepartment);
-    }
-
-    if (filterStatus) {
-      filtered = filtered.filter(emp => emp.status === filterStatus);
-    }
-
-    return filtered;
-  }, [allEmployees, searchTerm, filterDepartment, filterStatus]);
-
-  // Reset to page 1 whenever the filtered set changes so pagination can't
-  // point past the end of a newly-narrowed result set.
+  // Debounce the search box so typing does not fire a request per keystroke.
   useEffect(() => {
-    setPage(1);
-  }, [searchTerm, filterDepartment, filterStatus]);
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const totalPages = Math.max(1, Math.ceil(employees.length / PAGE_SIZE));
-  const pagedEmployees = employees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setLoadError(null);
+    employeesApi
+      .list({ page, pageSize: PAGE_SIZE, search: search || undefined, departmentId: departmentId || undefined, status: status || undefined }, controller.signal)
+      .then((result) => {
+        setData(result);
+        // Requesting a page past the end (e.g. after a deletion elsewhere) falls back to the last page.
+        const lastPage = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+        if (page > lastPage) setPage(lastPage);
+      })
+      .catch((error) => {
+        if ((error as Error).name !== 'AbortError') setLoadError(errorText(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [page, search, departmentId, status, reloadKey]);
 
-  const handleAddEmployee = () => {
-    if (!newEmployee.name || !newEmployee.email || !newEmployee.position || !newEmployee.department || !newEmployee.joinDate) return;
-    setAllEmployees(prev => [
-      {
-        ...newEmployee,
-        id: Date.now().toString(),
-        avatar: newEmployee.name.split(' ').map(n => n[0]).join('').toUpperCase(),
-        basicSalary: Number(newEmployee.basicSalary) || 0,
-        housingAllowance: Number(newEmployee.housingAllowance) || 0,
-        transportAllowance: Number(newEmployee.transportAllowance) || 0,
-        otherAllowances: Number(newEmployee.otherAllowances) || 0,
-      },
-      ...prev
-    ]);
-    setShowAddModal(false);
-    setNewEmployee(emptyEmployeeForm);
+  const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  // Departments and potential managers feed the filter and the forms.
+  useEffect(() => {
+    departmentsApi.list().then(setDepartments).catch(() => setDepartments([]));
+    if (canManage) {
+      employeesApi.list({ pageSize: 100, status: 'ACTIVE' }).then((r) => setManagers(r.items)).catch(() => setManagers([]));
+    }
+  }, [canManage, reloadKey]);
+
+  const closeDialog = useCallback(() => {
+    setDialog(null);
+    setSelected(null);
+    setDialogError(null);
+    setSaving(false);
+  }, []);
+
+  const openAdd = () => {
+    setForm(emptyForm(tenant?.baseCurrency ?? 'USD'));
+    setDialog('add');
   };
 
-  const handleEditEmployee = () => {
-    setAllEmployees(prev => prev.map(emp => emp.id === selectedEmployee.id ? {
-      ...selectedEmployee,
-      basicSalary: Number(selectedEmployee.basicSalary) || 0,
-      housingAllowance: Number(selectedEmployee.housingAllowance) || 0,
-      transportAllowance: Number(selectedEmployee.transportAllowance) || 0,
-      otherAllowances: Number(selectedEmployee.otherAllowances) || 0,
-    } : emp));
-    setShowEditModal(false);
-    setSelectedEmployee(null);
-  };
-
-  const handleDeleteEmployee = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this employee?')) {
-      setAllEmployees(prev => prev.filter(emp => emp.id !== id));
+  const openEdit = async (employee: Employee) => {
+    // The list omits nothing an Admin/HR needs, but re-read so the form starts from the latest server state.
+    try {
+      const fresh = await employeesApi.get(employee.id);
+      setSelected(fresh);
+      setForm(formFromEmployee(fresh, tenant?.baseCurrency ?? 'USD'));
+      setDialog('edit');
+    } catch (error) {
+      setNotice(errorText(error));
     }
   };
+
+  const openPreview = async (employee: Employee) => {
+    setSelected(employee);
+    setDialog('preview');
+    try {
+      setSelected(await employeesApi.get(employee.id));
+    } catch {
+      /* keep the directory view already shown */
+    }
+  };
+
+  const labels = useMemo(() => Object.fromEntries(pack.commonAllowances.map((a) => [a.code, a.label])), [pack]);
+
+  const submit = async (mode: 'create' | 'edit') => {
+    const problem = validateForm(form, mode);
+    if (problem) {
+      setDialogError(problem);
+      return;
+    }
+    setSaving(true);
+    setDialogError(null);
+    try {
+      if (mode === 'create') {
+        const created = await employeesApi.create(toCreateInput(form, labels));
+        setNotice(`${created.firstName} ${created.lastName} was added as ${created.employeeId}.`);
+        setPage(1);
+      } else if (selected) {
+        await employeesApi.update(selected.id, toUpdateInput(form, labels));
+        setNotice('Employee updated.');
+      }
+      closeDialog();
+      refresh();
+    } catch (error) {
+      setDialogError(errorText(error));
+      setSaving(false);
+    }
+  };
+
+  const confirmTerminate = async () => {
+    if (!selected || !terminationDate) return;
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await employeesApi.terminate(selected.id, terminationDate);
+      setNotice(`Employment ended for ${selected.firstName} ${selected.lastName}.`);
+      closeDialog();
+      refresh();
+    } catch (error) {
+      setDialogError(errorText(error));
+      setSaving(false);
+    }
+  };
+
+  const createDepartment = async () => {
+    if (!newDepartment.trim()) return;
+    setSaving(true);
+    setDialogError(null);
+    try {
+      await departmentsApi.create({ name: newDepartment.trim() });
+      setNewDepartment('');
+      setNotice('Department added.');
+      closeDialog();
+      refresh();
+    } catch (error) {
+      setDialogError(errorText(error));
+      setSaving(false);
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
+  const items = data?.items ?? [];
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-sm p-6">
-        <div className="flex flex-col md:flex-row justify-between mb-6">
-          <h2 className="font-display text-[26px] font-medium leading-tight tracking-[-0.02em] text-ink-900 mb-4 md:mb-0">Employee Directory</h2>
-          <div className="flex gap-2">
-            {canManageEmployees && (
-              <Button variant="success" onClick={() => setShowAddModal(true)}>
-                + Add Employee
-              </Button>
+      <div className="rounded-xl border border-ivory-300 bg-white p-6 shadow-premium-sm">
+        <div className="mb-6 flex flex-col justify-between md:flex-row">
+          <h2 className="mb-4 font-display text-[26px] font-medium leading-tight tracking-[-0.02em] text-ink-900 md:mb-0">Employee Directory</h2>
+          <div className="flex flex-wrap gap-2">
+            {canManage && (
+              <>
+                <Button variant="success" onClick={openAdd}>+ Add Employee</Button>
+                <Button variant="outline" onClick={() => setDialog('department')}>New Department</Button>
+              </>
             )}
-            <Button variant="outline" onClick={() => exportToCSV(employees, 'employees.csv')}>
+            <Button variant="outline" disabled={items.length === 0} onClick={() => download('employees.csv', employeesToCsv(items), 'text/csv')}>
               Export CSV
             </Button>
           </div>
         </div>
 
+        {notice && (
+          <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-md border border-success-200 bg-success-50 px-4 py-2.5 text-sm text-success-800">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="text-success-700 hover:text-success-900">✕</button>
+          </div>
+        )}
+
         {/* Search and filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="col-span-2">
-            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="md:col-span-2">
+            <label htmlFor="search" className="mb-1 block text-sm font-medium text-gray-700">Search</label>
             <input
-              type="text"
+              type="search"
               id="search"
-              placeholder="Search by name, email or position"
+              placeholder="Search by name, email, position or ID"
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div>
-            <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-            <select
-              id="department"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-              value={filterDepartment}
-              onChange={(e) => setFilterDepartment(e.target.value)}
-            >
-              <option value="">All Departments</option>
-              {departments.map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
+            <label htmlFor="department" className="mb-1 block text-sm font-medium text-gray-700">Department</label>
+            <select id="department" className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm" value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setPage(1); }}>
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.name} ({d.employeeCount})</option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-            <select
-              id="status"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="">All Statuses</option>
-              {statuses.map(status => (
-                <option key={status} value={status}>{status}</option>
-              ))}
+            <label htmlFor="status" className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+            <select id="status" className="block w-full rounded-md border-gray-300 shadow-sm focus:border-gold-500 focus:ring-gold-400 sm:text-sm" value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }}>
+              <option value="">All statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="TERMINATED">Terminated</option>
             </select>
           </div>
         </div>
 
-        {/* Employee Table */}
-        <div className="overflow-x-auto">
+        {loadError && (
+          <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-800">
+            <span>Could not load employees. {loadError}</span>
+            <Button variant="outline" size="sm" onClick={refresh}>Retry</Button>
+          </div>
+        )}
+
+        {/* Employee table */}
+        <div className="overflow-x-auto" aria-busy={loading}>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Join Date</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                {['Employee', 'Position', 'Department', 'Status', 'Join date'].map((h) => (
+                  <th key={h} scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">{h}</th>
+                ))}
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {pagedEmployees.map((employee) => (
-                <tr key={employee.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
+            <tbody className="divide-y divide-gray-200 bg-white">
+              {loading && items.length === 0 &&
+                Array.from({ length: 5 }, (_, i) => (
+                  <tr key={i} aria-hidden="true">
+                    <td colSpan={6} className="px-6 py-4"><div className="h-6 animate-pulse rounded bg-ivory-200" /></td>
+                  </tr>
+                ))}
+              {items.map((employee) => (
+                <tr key={employee.id} className={`hover:bg-gray-50 ${loading ? 'opacity-60' : ''}`}>
+                  <td className="whitespace-nowrap px-6 py-4">
                     <div className="flex items-center">
-                      <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-medium mr-3">
-                        {employee.avatar}
-                      </div>
+                      <div className="mr-3 flex h-10 w-10 items-center justify-center rounded-full bg-gold-100 font-medium text-gold-800" aria-hidden="true">{initialsOf(employee)}</div>
                       <div>
-                        <div className="font-medium text-gray-900">{employee.name}</div>
+                        <div className="font-medium text-gray-900">{employee.firstName} {employee.lastName}</div>
                         <div className="text-sm text-gray-500">{employee.email}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {employee.position}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {employee.department}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">                    <EmployeeStatusBadge status={employee.status} />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(employee.joinDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{employee.position}</td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{employee.department?.name ?? '—'}</td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm"><StatusBadge status={employee.status} /></td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{fmt.date(employee.joinDate)}</td>
+                  <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
                     <div className="flex justify-end gap-1">
-                      {canManageEmployees && (
+                      {canManage && employee.status === 'ACTIVE' && (
                         <>
-                          <Button variant="ghost-primary" size="sm" onClick={() => { setSelectedEmployee(employee); setShowEditModal(true); }}>Edit</Button>
-                          <Button variant="ghost-danger" size="sm" onClick={() => handleDeleteEmployee(employee.id)}>Delete</Button>
+                          <Button variant="ghost-primary" size="sm" onClick={() => openEdit(employee)}>Edit</Button>
+                          <Button variant="ghost-danger" size="sm" onClick={() => { setSelected(employee); setTerminationDate(new Date().toISOString().slice(0, 10)); setDialog('terminate'); }}>End employment</Button>
                         </>
                       )}
-                      <Button variant="ghost-secondary" size="sm" onClick={() => { setSelectedEmployee(employee); setShowPreviewModal(true); }}>Preview</Button>
+                      <Button variant="ghost-secondary" size="sm" onClick={() => openPreview(employee)}>Preview</Button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {pagedEmployees.length === 0 && (
+              {!loading && !loadError && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">No employees match these filters.</td>
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500">
+                    {search || departmentId || status ? 'No employees match these filters.' : canManage ? 'No employees yet. Add your first employee to get started.' : 'No employees to show.'}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -466,189 +432,94 @@ export default function Employees() {
         </div>
 
         {/* Pagination */}
-        <div className="flex justify-between items-center mt-5">
+        <nav className="mt-5 flex items-center justify-between" aria-label="Pagination">
           <div className="text-sm text-gray-700">
-            Showing <span className="font-medium">{pagedEmployees.length}</span> of <span className="font-medium">{employees.length}</span> employees
+            {data && data.total > 0
+              ? `Showing ${fmt.number((page - 1) * PAGE_SIZE + 1)}–${fmt.number(Math.min(page * PAGE_SIZE, data.total))} of ${fmt.number(data.total)}`
+              : 'Showing 0 of 0'}
           </div>
-          <div className="flex space-x-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
-              <Button
-                key={pageNum}
-                variant={pageNum === page ? 'primary' : 'outline'}
-                size="sm"
-                onClick={() => setPage(pageNum)}
-              >
-                {pageNum}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            >
-              Next
-            </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+            <span className="self-center text-sm text-gray-600">Page {page} of {totalPages}</span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>Next</Button>
           </div>
-        </div>
-
-        {/* Add Employee Modal */}
-        {showAddModal && (
-          <div className="fixed inset-0 bg-ink-950/50 backdrop-blur-[2px] flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900 mb-4">Add Employee</h3>
-              <div className="space-y-3">
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Full Name"
-                  value={newEmployee.name}
-                  onChange={e => setNewEmployee({ ...newEmployee, name: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Email"
-                  value={newEmployee.email}
-                  onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Position"
-                  value={newEmployee.position}
-                  onChange={e => setNewEmployee({ ...newEmployee, position: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Department"
-                  value={newEmployee.department}
-                  onChange={e => setNewEmployee({ ...newEmployee, department: e.target.value })}
-                />
-                <select
-                  className="w-full border rounded px-3 py-2"
-                  value={newEmployee.status}
-                  onChange={e => setNewEmployee({ ...newEmployee, status: e.target.value })}
-                >
-                  <option value="Active">Active</option>
-                  <option value="On Leave">On Leave</option>
-                </select>
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  type="date"
-                  value={newEmployee.joinDate}
-                  onChange={e => setNewEmployee({ ...newEmployee, joinDate: e.target.value })}
-                />
-                <PayrollInfoFields value={newEmployee} onChange={setNewEmployee} />
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
-                <Button variant="primary" onClick={handleAddEmployee}>Add</Button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Edit Employee Modal */}
-        {showEditModal && selectedEmployee && (
-          <div className="fixed inset-0 bg-ink-950/50 backdrop-blur-[2px] flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900 mb-4">Edit Employee</h3>
-              <div className="space-y-3">
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Full Name"
-                  value={selectedEmployee.name}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, name: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Email"
-                  value={selectedEmployee.email}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, email: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Position"
-                  value={selectedEmployee.position}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, position: e.target.value })}
-                />
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Department"
-                  value={selectedEmployee.department}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, department: e.target.value })}
-                />
-                <select
-                  className="w-full border rounded px-3 py-2"
-                  value={selectedEmployee.status}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, status: e.target.value })}
-                >
-                  <option value="Active">Active</option>
-                  <option value="On Leave">On Leave</option>
-                </select>
-                <input
-                  className="w-full border rounded px-3 py-2"
-                  type="date"
-                  value={selectedEmployee.joinDate}
-                  onChange={e => setSelectedEmployee({ ...selectedEmployee, joinDate: e.target.value })}
-                />
-                <PayrollInfoFields value={selectedEmployee} onChange={setSelectedEmployee} />
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <Button variant="outline" onClick={() => setShowEditModal(false)}>Cancel</Button>
-                <Button variant="primary" onClick={handleEditEmployee}>Save</Button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Preview Employee Modal */}
-        {showPreviewModal && selectedEmployee && (
-          <div className="fixed inset-0 bg-ink-950/50 backdrop-blur-[2px] flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl border border-ivory-300 shadow-premium-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900 mb-4">Employee Details</h3>
-              <div className="space-y-2">
-                <div className="flex items-center mb-2">
-                  <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold mr-3 text-lg">
-                    {selectedEmployee.avatar}
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-900 text-lg">{selectedEmployee.name}</div>
-                    <div className="text-sm text-gray-500">{selectedEmployee.email}</div>
-                  </div>
-                </div>
-                <div className="text-sm"><b>Position:</b> {selectedEmployee.position}</div>
-                <div className="text-sm"><b>Department:</b> {selectedEmployee.department}</div>
-                <div className="text-sm"><b>Status:</b> {selectedEmployee.status}</div>
-                <div className="text-sm"><b>Join Date:</b> {new Date(selectedEmployee.joinDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
-
-                <div className="border-t pt-2 mt-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">UAE Compliance & Payroll</p>
-                  <div className="text-sm"><b>Emirates ID:</b> {selectedEmployee.emiratesId || '—'}</div>
-                  <div className="text-sm"><b>Labour Card No.:</b> {selectedEmployee.laborCardNumber || '—'}</div>
-                  <div className="text-sm"><b>IBAN:</b> {selectedEmployee.iban || '—'}</div>
-                  <div className="text-sm">
-                    <b>Monthly Salary:</b> AED {(
-                      (selectedEmployee.basicSalary || 0) +
-                      (selectedEmployee.housingAllowance || 0) +
-                      (selectedEmployee.transportAllowance || 0) +
-                      (selectedEmployee.otherAllowances || 0)
-                    ).toLocaleString()}
-                    <span className="text-gray-500"> (Basic: {(selectedEmployee.basicSalary || 0).toLocaleString()})</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <Button variant="outline" onClick={() => setShowPreviewModal(false)}>Close</Button>
-              </div>
-            </div>
-          </div>
-        )}
+        </nav>
       </div>
+
+      {(dialog === 'add' || dialog === 'edit') && (
+        <Modal title={dialog === 'add' ? 'Add employee' : `Edit ${selected?.firstName ?? 'employee'}`} onClose={closeDialog} wide>
+          <form onSubmit={(e) => { e.preventDefault(); void submit(dialog === 'add' ? 'create' : 'edit'); }} noValidate>
+            <EmployeeFields mode={dialog === 'add' ? 'create' : 'edit'} value={form} onChange={setForm} departments={departments} managers={managers} editingId={selected?.id} countryCode={tenant?.countryCode} />
+            {dialogError && <p role="alert" className="mb-3 text-sm text-danger-700">{dialogError}</p>}
+            <div className="mt-2 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button type="submit" variant="primary" isLoading={saving}>{dialog === 'add' ? 'Add employee' : 'Save changes'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {dialog === 'preview' && selected && (
+        <Modal title={`${selected.firstName} ${selected.lastName}`} onClose={closeDialog} wide>
+          <dl>
+            <Detail label="Employee ID">{selected.employeeId}</Detail>
+            <Detail label="Email">{selected.email}</Detail>
+            <Detail label="Position">{selected.position}</Detail>
+            <Detail label="Department">{selected.department?.name ?? '—'}</Detail>
+            <Detail label="Status"><StatusBadge status={selected.status} /></Detail>
+            <Detail label="Joined">{fmt.date(selected.joinDate)}</Detail>
+            {selected.terminationDate && <Detail label="Employment ended">{fmt.date(selected.terminationDate)}</Detail>}
+          </dl>
+          {selected.salary !== undefined ? (
+            <div className="mt-4">
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Pay & identity ({pack.name})</p>
+              <dl>
+                <Detail label="Base pay">{fmt.money(selected.salary, selected.currency)}</Detail>
+                {(selected.allowances ?? []).map((a) => (
+                  <Detail key={a.code} label={a.label ?? a.code}>{fmt.money(a.amount, selected.currency)}</Detail>
+                ))}
+                {pack.identifiers.map((field) => (
+                  <Detail key={field.key} label={field.label}>{selected.identifiers?.[field.key] || '—'}</Detail>
+                ))}
+                <Detail label="Bank account">{selected.bankAccount || '—'}</Detail>
+                <Detail label="Phone">{selected.phoneNumber || '—'}</Detail>
+              </dl>
+            </div>
+          ) : (
+            <p className="mt-4 text-xs text-gray-500">Pay and personal details are visible only to HR, administrators and the employee.</p>
+          )}
+          <div className="mt-4 flex justify-end">
+            <Button variant="outline" onClick={closeDialog}>Close</Button>
+          </div>
+        </Modal>
+      )}
+
+      {dialog === 'terminate' && selected && (
+        <Modal title="End employment" onClose={closeDialog}>
+          <p className="mb-4 text-sm text-gray-600">
+            {selected.firstName} {selected.lastName} will lose access on the last working day. Their record and history are kept.
+          </p>
+          <Input id="terminationDate" type="date" label="Last working day" value={terminationDate} min={selected.joinDate ?? undefined} onChange={(e) => setTerminationDate(e.target.value)} required />
+          {dialogError && <p role="alert" className="mb-3 text-sm text-danger-700">{dialogError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
+            <Button variant="danger" isLoading={saving} disabled={!terminationDate} onClick={confirmTerminate}>End employment</Button>
+          </div>
+        </Modal>
+      )}
+
+      {dialog === 'department' && (
+        <Modal title="New department" onClose={closeDialog}>
+          <form onSubmit={(e) => { e.preventDefault(); void createDepartment(); }}>
+            <Input id="departmentName" label="Name" value={newDepartment} onChange={(e) => setNewDepartment(e.target.value)} maxLength={100} required />
+            {dialogError && <p role="alert" className="mb-3 text-sm text-danger-700">{dialogError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button type="submit" variant="primary" isLoading={saving} disabled={!newDepartment.trim()}>Add department</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

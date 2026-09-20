@@ -1,25 +1,30 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../store/hooks';
-import { selectIsAuthenticated, selectCurrentUser } from '../../auth/authSlice';
+import { selectAuthStatus, selectCurrentUser } from '../../auth/authSlice';
+import { canAccessPath } from '../layout/navigation';
 
-interface ProtectedRouteProps {
-  allowedRoles?: ('admin' | 'hr' | 'employee' | 'manager')[];
-}
-
-export default function ProtectedRoute({ allowedRoles }: Readonly<ProtectedRouteProps>) {
-  const isAuthenticated = useAppSelector(selectIsAuthenticated);
+export default function ProtectedRoute() {
+  const status = useAppSelector(selectAuthStatus);
   const user = useAppSelector(selectCurrentUser);
-  
-  // Check if user is authenticated
-  if (!isAuthenticated) {
-    return <Navigate to="/auth/login" replace />;
+  const location = useLocation();
+
+  // A stored session is being restored: wait, so a reload never flashes the sign-in page.
+  if (status === 'initializing') {
+    return (
+      <div className="flex h-screen items-center justify-center bg-ivory-100" role="status" aria-label="Loading your session">
+        <span className="h-5 w-5 animate-spin rounded-full border-[1.5px] border-ivory-400 border-t-ink-900" />
+      </div>
+    );
   }
-  
-  // Check if user has the required role (if roles are specified)
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+
+  if (status !== 'authenticated' || !user) {
+    return <Navigate to="/auth/login" replace state={{ from: location.pathname }} />;
+  }
+
+  // Role rules come from the navigation config; the API enforces the same rules independently.
+  if (!canAccessPath(user.role, location.pathname)) {
     return <Navigate to="/unauthorized" replace />;
   }
-  
-  // If authenticated and authorized, render the child routes
+
   return <Outlet />;
 }

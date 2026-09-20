@@ -2,10 +2,15 @@ import { useState } from 'react';
 import { PageHeader, DataTable } from '../components/ui/Dashboard';
 import { Button } from '../components/ui/Form';
 import { Badge } from '../components/ui/Notifications';
-import { calculateGratuity, type TerminationType } from '../utils/uaeGratuity';
+import { packFor, type TerminationReason } from '../compliance/packs';
+import { useFormat } from '../i18n/format';
+import { useAppSelector } from '../store/hooks';
+import { selectTenant } from '../auth/authSlice';
 
-// Mock offboarding data. `joinDate`, `basicSalary`, and `terminationType` are
-// UAE-specific additions feeding the gratuity calculator below.
+const MS_PER_YEAR = 1000 * 60 * 60 * 24 * 365.25;
+
+// Mock offboarding data (sample data until the offboarding API exists). `joinDate`, `basicSalary`
+// and `terminationType` feed the jurisdiction pack's end-of-service calculator, when one exists.
 const initialOffboardingData = [
 	{
 		id: '1',
@@ -18,7 +23,7 @@ const initialOffboardingData = [
 		progress: 40,
 		reason: 'New Opportunity',
 		basicSalary: 11000,
-		terminationType: 'resignation' as TerminationType,
+		terminationType: 'resignation' as TerminationReason,
 	},
 	{
 		id: '2',
@@ -31,7 +36,7 @@ const initialOffboardingData = [
 		progress: 75,
 		reason: 'Relocation',
 		basicSalary: 12500,
-		terminationType: 'resignation' as TerminationType,
+		terminationType: 'resignation' as TerminationReason,
 	},
 	{
 		id: '3',
@@ -44,7 +49,7 @@ const initialOffboardingData = [
 		progress: 100,
 		reason: 'Retirement',
 		basicSalary: 13000,
-		terminationType: 'contract_end' as TerminationType,
+		terminationType: 'end_of_contract' as TerminationReason,
 	},
 	{
 		id: '4',
@@ -57,7 +62,7 @@ const initialOffboardingData = [
 		progress: 100,
 		reason: 'New Opportunity',
 		basicSalary: 9500,
-		terminationType: 'resignation' as TerminationType,
+		terminationType: 'resignation' as TerminationReason,
 	},
 ];
 
@@ -85,6 +90,8 @@ const offboardingColumns = [
 ];
 
 export default function Offboarding() {
+	const fmt = useFormat();
+	const pack = packFor(useAppSelector(selectTenant)?.countryCode);
 	// Was `const [offboardingData] = useState(...)` — setter never
 	// destructured, so this was runtime-immutable and "Initiate Exit Process"
 	// had nothing to write to.
@@ -93,7 +100,7 @@ export default function Offboarding() {
 	const [showInitiateModal, setShowInitiateModal] = useState(false);
 	const [newExit, setNewExit] = useState({
 		name: '', position: '', department: '', joinDate: '', lastDay: '', reason: '',
-		basicSalary: '', terminationType: 'resignation' as TerminationType,
+		basicSalary: '', terminationType: 'resignation' as TerminationReason,
 	});
 	const [interviewScheduledFor, setInterviewScheduledFor] = useState<Set<string>>(new Set());
 
@@ -161,8 +168,8 @@ export default function Offboarding() {
 		progress: renderProgress(employee.progress),
 	}));
 
-	const handleRowClick = (employee: Record<string, any>) => {
-		setSelectedEmployee(employee.id);
+	const handleRowClick = (employee: Record<string, unknown>) => {
+		setSelectedEmployee(String(employee.id));
 	};
 
 	// Get tasks for selected employee
@@ -266,48 +273,40 @@ export default function Offboarding() {
 									</div>
 								</div>
 
-								{/* End-of-Service Gratuity — real UAE Labour Law No. 33/2021
-								    calculation (see src/utils/uaeGratuity.ts), computed
-								    client-side. Validate against MOHRE guidance before using
-								    for an actual payout. */}
+								{/* End-of-service payment. The calculation comes from the organization's jurisdiction
+								    pack (src/compliance/packs.ts); countries without a pack show no figure rather than
+								    a guessed one. Validate any statutory result before paying it out. */}
 								{(() => {
 									const emp = getSelectedEmployeeData();
-									if (!emp || !emp.joinDate || !emp.basicSalary) return null;
-									const gratuity = calculateGratuity({
-										basicMonthlySalary: emp.basicSalary,
-										joinDate: emp.joinDate,
-										lastWorkingDay: emp.lastDay,
-										terminationType: emp.terminationType,
-									});
+									if (!emp) return null;
+									if (!pack.endOfService) {
+										return (
+											<div className="border-t pt-4">
+												<h4 className="font-medium mb-2">End-of-Service Payment</h4>
+												<div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+													No statutory calculator is configured for {pack.name}. Determine any entitlement under local law or the employment contract.
+												</div>
+											</div>
+										);
+									}
+									if (!emp.joinDate || !emp.basicSalary) return null;
+									const serviceYears = Math.max(0, (new Date(emp.lastDay).getTime() - new Date(emp.joinDate).getTime()) / MS_PER_YEAR);
+									const result = pack.endOfService({ monthlyBasePay: emp.basicSalary, serviceYears, reason: emp.terminationType });
 									return (
 										<div className="border-t pt-4">
-											<h4 className="font-medium mb-2">End-of-Service Gratuity</h4>
-											{gratuity.eligible ? (
-												<div className="bg-brand-50 rounded-lg p-3 space-y-1">
-													<div className="flex justify-between text-sm">
-														<span className="text-gray-600">Years of Service:</span>
-														<span className="font-medium">{gratuity.yearsOfService.toFixed(1)}</span>
-													</div>
-													<div className="flex justify-between text-sm">
-														<span className="text-gray-600">Days Entitled:</span>
-														<span className="font-medium">{gratuity.daysEntitled.toFixed(0)}</span>
-													</div>
-													<div className="flex justify-between text-sm font-semibold pt-1 border-t border-brand-100">
-														<span>Gratuity Payable:</span>
-														<span>AED {gratuity.finalGratuity.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-													</div>
-													{gratuity.grossGratuity > gratuity.cap && (
-														<p className="text-xs text-gray-500">Capped at 2 years' basic salary (AED {gratuity.cap.toLocaleString()}).</p>
-													)}
+											<h4 className="font-medium mb-2">End-of-Service Payment ({pack.name})</h4>
+											<div className="bg-brand-50 rounded-lg p-3 space-y-1">
+												<div className="flex justify-between text-sm">
+													<span className="text-gray-600">Years of Service:</span>
+													<span className="font-medium">{serviceYears.toFixed(1)}</span>
 												</div>
-											) : (
-												<div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
-													Not eligible: {gratuity.reason}
+												<div className="flex justify-between text-sm font-semibold pt-1 border-t border-brand-100">
+													<span>Amount Payable:</span>
+													<span>{fmt.money(result.amount)}</span>
 												</div>
-											)}
-											<p className="text-xs text-gray-400 mt-1">
-												Estimate only — validate against current MOHRE guidance before final settlement.
-											</p>
+											</div>
+											<p className="text-xs text-gray-500 mt-2">{result.explanation}</p>
+											<p className="text-xs text-gray-400 mt-1">Estimate only. Validate before final settlement.</p>
 										</div>
 									);
 								})()}
@@ -412,12 +411,12 @@ export default function Offboarding() {
 									<select
 										className="w-full border rounded px-3 py-2"
 										value={newExit.terminationType}
-										onChange={e => setNewExit({ ...newExit, terminationType: e.target.value as TerminationType })}
+										onChange={e => setNewExit({ ...newExit, terminationType: e.target.value as TerminationReason })}
 									>
 										<option value="resignation">Resignation</option>
-										<option value="contract_end">Contract End</option>
+										<option value="end_of_contract">Contract End</option>
 										<option value="termination">Termination</option>
-										<option value="termination_for_cause">Termination for Cause (Art. 44)</option>
+										<option value="for_cause">Termination for Cause</option>
 									</select>
 								</div>
 							</div>

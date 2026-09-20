@@ -1,4 +1,5 @@
-// UAE End-of-Service Gratuity calculation, per UAE Labour Law No. 33 of 2021, Article 51.
+// United Arab Emirates jurisdiction module: end-of-service gratuity, per UAE Labour Law No. 33 of 2021, Article 51.
+// Registered through the UAE jurisdiction pack (see ../packs.ts); nothing outside that pack should import it directly.
 //
 // This is real business logic (not a UI mock) — the same formula a backend
 // service would implement, kept here so the frontend can compute a genuine
@@ -77,4 +78,11 @@ export function calculateGratuity({ basicMonthlySalary, joinDate, lastWorkingDay
     cap,
     finalGratuity,
   };
+}
+
+/** Years-of-service entry point used by the jurisdiction pack interface. */
+export function calculateGratuityForService(basicMonthlySalary: number, yearsOfService: number, terminationType: TerminationType): GratuityResult {
+  const start = new Date(0);
+  const end = new Date(yearsOfService * MS_PER_YEAR);
+  return calculateGratuity({ basicMonthlySalary, joinDate: start.toISOString(), lastWorkingDay: end.toISOString(), terminationType });
 }

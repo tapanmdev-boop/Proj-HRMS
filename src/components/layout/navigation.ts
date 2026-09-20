@@ -49,7 +49,7 @@ export const navigation: NavGroup[] = [
   {
     label: 'Pay & Compensation',
     items: [
-      { label: 'Payroll & WPS', to: '/hrms/payroll', icon: 'banknotes', roles: PEOPLE_OPS },
+      { label: 'Payroll', to: '/hrms/payroll', icon: 'banknotes', roles: PEOPLE_OPS },
       { label: 'Expenses', to: '/hrms/expenses', icon: 'receipt' },
     ],
   },
@@ -115,4 +115,15 @@ export function findNavEntry(pathname: string): { group: NavGroup; item: NavItem
     }
   }
   return best;
+}
+
+/**
+ * Whether a role may open a route. The navigation config is the single source for role rules, so
+ * hidden links and blocked URLs cannot drift apart. This is a usability layer: the API enforces
+ * the same rules independently.
+ */
+export function canAccessPath(role: Role | undefined, pathname: string): boolean {
+  const entry = findNavEntry(pathname);
+  if (!entry?.item.roles) return true;
+  return !!role && entry.item.roles.includes(role);
 }

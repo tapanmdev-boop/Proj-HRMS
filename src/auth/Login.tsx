@@ -1,13 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { login, selectAuthError, selectAuthLoading } from './authSlice';
+import { clearAuthError, login, rememberedTenant, selectAuthError, selectAuthLoading } from './authSlice';
 
-const DEMO_ACCOUNTS = [
-  { role: 'Administrator', email: 'admin@hrms.com', password: 'admin123' },
-  { role: 'People Ops', email: 'hr@hrms.com', password: 'hr123' },
-  { role: 'Employee', email: 'employee@hrms.com', password: 'employee123' },
-];
 
 const inputClass =
   'block h-11 w-full rounded-lg border border-ivory-400 bg-white px-3.5 text-[14px] text-ink-900 placeholder:text-gray-400 transition-colors hover:border-gray-400 focus:border-gold-500 focus:outline-none focus:ring-4 focus:ring-gold-100';
@@ -15,16 +10,19 @@ const inputClass =
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [organization, setOrganization] = useState(rememberedTenant);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const error = useAppSelector(selectAuthError);
   const isLoading = useAppSelector(selectAuthLoading);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const resultAction = await dispatch(login({ email, password }));
+    const resultAction = await dispatch(login({ tenant: organization, email, password }));
     if (login.fulfilled.match(resultAction)) {
-      navigate('/hrms');
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from && from !== '/auth/login' ? from : '/hrms', { replace: true });
     }
   };
 
@@ -43,7 +41,7 @@ export default function Login() {
 
         <div className="relative inline-flex w-fit px-2 py-1">
           <div>
-            <img src="/Meridian-HRMS-logo.png" alt="Meridian HRMS" className="h-25 w-auto object-contain" style={{maxHeight:"150px"}} />
+            <img src={`${import.meta.env.BASE_URL}Meridian-HRMS-logo.png`} alt="Meridian HRMS" className="h-25 w-auto object-contain" style={{maxHeight:"150px"}} />
           <div className="my-5 text-center w-full flex flex-col justify-center items-center">
             <div className="mb-6 h-px w-12 bg-gold-500" aria-hidden="true" />
           <h2 className="max-w-md font-display text-[44px] font-normal leading-[1.08] tracking-[-0.025em]">
@@ -57,8 +55,9 @@ export default function Login() {
         </div>
 
         <div className="relative flex flex-wrap gap-x-6 gap-y-2 text-[12px] uppercase tracking-[0.12em] text-ivory-50/35 justify-center">
-          <span>WPS payroll</span>
-          <span>UAE gratuity</span>
+          <span>Any country</span>
+          <span>Any currency</span>
+          <span>Payroll</span>
           <span>Performance</span>
           <span>Hiring</span>
         </div>
@@ -68,7 +67,7 @@ export default function Login() {
       <main className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-[380px]">
           <div className="mb-10 flex items-center lg:hidden">
-            <img src="/Meridian-HRMS-logo.png" alt="Meridian HRMS" className="h-10 w-auto object-contain" />
+            <img src={`${import.meta.env.BASE_URL}Meridian-HRMS-logo.png`} alt="Meridian HRMS" className="h-10 w-auto object-contain" />
           </div>
 
           <h1 className="font-display text-[32px] font-medium leading-tight tracking-[-0.02em] text-ink-900">Welcome back</h1>
@@ -80,6 +79,25 @@ export default function Login() {
                 {error}
               </div>
             )}
+
+            <div>
+              <label htmlFor="organization" className="mb-1.5 block text-[13px] font-medium text-gray-700">
+                Organization
+              </label>
+              <input
+                id="organization"
+                name="organization"
+                type="text"
+                autoComplete="organization"
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+                value={organization}
+                onChange={(e) => setOrganization(e.target.value)}
+                placeholder="your-company"
+                className={inputClass}
+              />
+            </div>
 
             <div>
               <label htmlFor="email" className="mb-1.5 block text-[13px] font-medium text-gray-700">
@@ -123,25 +141,12 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-10 border-t border-ivory-300 pt-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">Demo accounts</p>
-            <div className="mt-3 grid gap-2">
-              {DEMO_ACCOUNTS.map((account) => (
-                <button
-                  key={account.email}
-                  type="button"
-                  onClick={() => {
-                    setEmail(account.email);
-                    setPassword(account.password);
-                  }}
-                  className="flex items-center justify-between rounded-lg border border-ivory-300 bg-white px-3.5 py-2.5 text-left transition-colors hover:border-gold-300 hover:bg-gold-50"
-                >
-                  <span className="text-[13px] font-medium text-ink-900">{account.role}</span>
-                  <span className="text-[12.5px] text-gray-500">{account.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="mt-10 border-t border-ivory-300 pt-6 text-[13.5px] text-gray-500">
+            New to Meridian?{' '}
+            <Link to="/auth/signup" onClick={() => dispatch(clearAuthError())} className="font-medium text-ink-900 underline decoration-gold-500 underline-offset-4 hover:text-gold-700">
+              Create your organization
+            </Link>
+          </p>
         </div>
       </main>
     </div>
